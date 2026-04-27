@@ -25,6 +25,9 @@ type Block struct {
 	FilesAdded int            `json:"files_added"`
 	LinesAdded int            `json:"lines_added"`
 	LinesDel   int            `json:"lines_del"`
+	Machine    string         `json:"machine,omitempty"`
+	OS         string         `json:"os,omitempty"`
+	ByMachine  map[string]int `json:"by_machine,omitempty"` // minutes per machine (multi-device)
 	Summary    string         `json:"-"`
 	AISummary  string         `json:"ai_summary,omitempty"`
 }
@@ -52,7 +55,8 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 
 	b := &Block{
 		StartTS: start, EndTS: end,
-		ByTool: map[string]int{}, ByProject: map[string]int{}, Languages: map[string]int{},
+		ByTool: map[string]int{}, ByProject: map[string]int{},
+		Languages: map[string]int{}, ByMachine: map[string]int{},
 	}
 	repoCt        := map[string]int{}
 	projCt        := map[string]int{}
@@ -80,6 +84,9 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 			continue
 		}
 		b.ByTool[m.Category] += secPerTick
+		if m.Machine != "" {
+			b.ByMachine[m.Machine] += secPerTick
+		}
 		if m.Repo != "" {
 			repoCt[m.Repo]++
 			repoSet[m.Repo+"\x00"+m.Cwd] = struct{}{}
@@ -119,6 +126,12 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 	}
 	toMin(b.ByTool)
 	toMin(b.ByProject)
+	toMin(b.ByMachine)
+	b.Machine = topKey(b.ByMachine)
+	// OS from current platform (events may mix machines; use daemon's own OS)
+	if pl := GetPlatform(); pl != nil {
+		b.OS = pl.OS
+	}
 
 	// gather language + git data per unique repo
 	cwdsByRepo := map[string][]string{}
@@ -227,6 +240,9 @@ func render(b *Block) string {
 		b.StartTS.Local().Format("15:04"),
 		b.EndTS.Local().Format("15:04"))
 	fmt.Fprintf(&sb, "**Focus:** %d min  ·  **Context switches:** %d\n", b.FocusedMin, b.Switches)
+	if b.Machine != "" {
+		fmt.Fprintf(&sb, "**Machine:** %s (%s)\n", b.Machine, b.OS)
+	}
 	if b.Repo != "" {
 		if b.Branch != "" {
 			fmt.Fprintf(&sb, "**Repo:** %s (%s)\n", b.Repo, b.Branch)

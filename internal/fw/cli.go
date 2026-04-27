@@ -102,8 +102,11 @@ func cmdStart() *cobra.Command {
 			}
 			defer os.Remove(pidFile)
 
+			initPlatform(cfg.MachineName)
+			pl := GetPlatform()
 			fmt.Println("flowd started (ctrl+c to stop, or `fw stop`)")
-			slog.Info("daemon up", "db", cfg.DBPath, "poll_sec", cfg.PollIntervalSec)
+			slog.Info("daemon up", "db", cfg.DBPath, "poll_sec", cfg.PollIntervalSec,
+				"machine", pl.Machine, "os", pl.OS)
 
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()

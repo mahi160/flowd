@@ -22,6 +22,8 @@ type PaneMeta struct {
 	Category string `json:"category"`
 	Cwd      string `json:"cwd"`
 	Repo     string `json:"repo,omitempty"`
+	Machine  string `json:"machine,omitempty"`
+	OS       string `json:"os,omitempty"`
 }
 
 type Tracker struct {
@@ -104,9 +106,11 @@ func (t *Tracker) poll() {
 
 	repo := RepoName(p.Cwd)
 	cat := ClassifyCommand(p.Command)
+	pl := GetPlatform()
 	meta, _ := json.Marshal(PaneMeta{
 		Session: p.Session, Window: p.Window, Pane: p.Pane,
 		Command: p.Command, Category: cat, Cwd: p.Cwd, Repo: repo,
+		Machine: pl.Machine, OS: pl.OS,
 	})
 
 	t.write(EvActive, p.PaneID, string(meta))

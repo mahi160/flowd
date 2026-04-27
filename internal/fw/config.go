@@ -19,6 +19,8 @@ type Config struct {
 	WatchDirs          []string `yaml:"watch_dirs"`
 	DBPath             string   `yaml:"db_path"` // lives inside repo by default
 
+	MachineName string `yaml:"machine_name"` // display name for this machine (default: hostname)
+
 	AIEnabled bool   `yaml:"ai_enabled"`
 	AICommand string `yaml:"ai_command"` // any CLI reading stdin → stdout. Run via `sh -c`.
 	AIPrompt  string `yaml:"ai_prompt"`  // prepended to the block summary on stdin.

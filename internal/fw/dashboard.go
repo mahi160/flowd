@@ -28,8 +28,11 @@ type dashPayload struct {
 	StreakDays    int            `json:"streak_days"`
 	TopRepo       string         `json:"top_repo"`
 	TopBranch     string         `json:"top_branch"`
-	AIRecap       string         `json:"ai_recap"`        // aggregate AI insight (optional)
-	AIPerBlock    int            `json:"ai_per_block"`    // count of blocks with AI summary
+	AIRecap       string         `json:"ai_recap"`
+	AIPerBlock    int            `json:"ai_per_block"`
+	ByMachine     map[string]int `json:"by_machine"`
+	Machine       string         `json:"machine"`
+	OS            string         `json:"os"`
 }
 
 type hourBucket struct {
@@ -50,12 +53,16 @@ type tlBlock struct {
 }
 
 func buildDashPayload(period string, blocks []Block) dashPayload {
+	pl := GetPlatform()
 	p := dashPayload{
 		Period:    period,
 		Generated: time.Now().Local().Format("Mon 02 Jan, 15:04"),
 		ByProject: map[string]int{},
 		ByTool:    map[string]int{},
 		Languages: map[string]int{},
+		ByMachine: map[string]int{},
+		Machine:   pl.Machine,
+		OS:        pl.OS,
 	}
 	repoMin := map[string]int{}
 	for _, b := range blocks {
@@ -91,6 +98,9 @@ func buildDashPayload(period string, blocks []Block) dashPayload {
 		})
 		if b.AISummary != "" {
 			p.AIPerBlock++
+		}
+		for k, v := range b.ByMachine {
+			p.ByMachine[k] += v
 		}
 	}
 	p.TotalBlocks = len(blocks)
@@ -291,9 +301,9 @@ footer{margin-top:36px;color:var(--mute);font-size:12px;text-align:center}
   <div id="content">
     <div class="grid kpis">
       <div class="card kpi accent glow"><div class="label">Focus</div><div class="num" id="kFocus">—</div><div class="sub" id="kFocusSub"></div></div>
+      <div class="card kpi"><div class="label">Machine</div><div class="num" id="kMachine" style="font-size:22px">—</div><div class="sub" id="kOS"></div></div>
       <div class="card kpi"><div class="label">Top repo</div><div class="num" id="kRepo" style="font-size:22px">—</div><div class="sub" id="kBranch"></div></div>
       <div class="card kpi"><div class="label">Code</div><div class="num" id="kCode" style="font-size:22px">—</div><div class="sub" id="kCodeSub"></div></div>
-      <div class="card kpi"><div class="label">Streak</div><div class="num" id="kStreak">—</div><div class="sub">consecutive active days</div></div>
     </div>
 
     <div class="row r2">
@@ -314,7 +324,7 @@ footer{margin-top:36px;color:var(--mute);font-size:12px;text-align:center}
     <div class="row r3">
       <div class="card"><h2>By project</h2><canvas id="chProject"></canvas></div>
       <div class="card"><h2>By tool</h2><canvas id="chTool"></canvas></div>
-      <div class="card"><h2>Languages <span class="hint">(weighted by lines touched)</span></h2><div id="langList" class="lang-list"></div></div>
+      <div class="card" id="machineCard"><h2 id="machineCardTitle">Languages <span class="hint">(weighted by lines touched)</span></h2><div id="langList" class="lang-list"></div><canvas id="chMachine" style="display:none"></canvas></div>
     </div>
 
     <div class="row r2">
@@ -369,11 +379,12 @@ function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":
   const h = Math.floor(DATA.total_focus_min/60), m = DATA.total_focus_min%60;
   document.getElementById('kFocus').textContent = (h ? h+"h " : "") + m + "m";
   document.getElementById('kFocusSub').textContent = DATA.total_blocks + " blocks · " + DATA.total_switches + " context switches";
+  document.getElementById('kMachine').textContent = DATA.machine || "—";
+  document.getElementById('kOS').textContent = DATA.os || "";
   document.getElementById('kRepo').textContent = DATA.top_repo || "—";
   document.getElementById('kBranch').textContent = DATA.top_branch ? "branch: " + DATA.top_branch : "";
   document.getElementById('kCode').textContent = DATA.files_changed + " files";
   document.getElementById('kCodeSub').textContent = "+" + DATA.lines_added + " −" + DATA.lines_removed;
-  document.getElementById('kStreak').textContent = DATA.streak_days + " day" + (DATA.streak_days===1?"":"s");
 
   // Heatmap
   const hm = document.getElementById('heatmap');
@@ -443,6 +454,16 @@ function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":
 
   donut('chProject', DATA.by_project);
   donut('chTool',    DATA.by_tool);
+
+  // show machine chart only when >1 machine contributed
+  const machines = Object.keys(DATA.by_machine||{}).filter(k=>DATA.by_machine[k]>0);
+  if (machines.length > 1) {
+    document.getElementById('langList').style.display = 'none';
+    const mc = document.getElementById('chMachine');
+    mc.style.display = 'block';
+    document.getElementById('machineCardTitle').innerHTML = 'By machine';
+    donut('chMachine', DATA.by_machine);
+  }
 
   // Languages list
   const ll = document.getElementById('langList');
