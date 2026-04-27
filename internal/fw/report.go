@@ -12,7 +12,7 @@ import (
 // for blocks whose start_ts falls in [start, end).
 func LoadBlocks(ctx context.Context, d *DB, start, end time.Time) ([]Block, error) {
 	rows, err := d.QueryContext(ctx,
-		`SELECT data, start_ts, end_ts, project, repo, focused_minutes, switches, summary
+		`SELECT data, start_ts, end_ts, project, repo, focused_minutes, switches, summary, ai_summary
 		 FROM blocks WHERE start_ts >= ? AND start_ts < ? ORDER BY start_ts`,
 		start.UTC(), end.UTC())
 	if err != nil {
@@ -23,11 +23,11 @@ func LoadBlocks(ctx context.Context, d *DB, start, end time.Time) ([]Block, erro
 	var out []Block
 	for rows.Next() {
 		var (
-			data, p, r, sum            string
-			startStr, endStr           string
-			focused, switches          int
+			data, p, r, sum, ai string
+			startStr, endStr    string
+			focused, switches   int
 		)
-		if err := rows.Scan(&data, &startStr, &endStr, &p, &r, &focused, &switches, &sum); err != nil {
+		if err := rows.Scan(&data, &startStr, &endStr, &p, &r, &focused, &switches, &sum, &ai); err != nil {
 			return nil, err
 		}
 		var b Block
@@ -54,6 +54,9 @@ func LoadBlocks(ctx context.Context, d *DB, start, end time.Time) ([]Block, erro
 			b.EndTS, _ = time.Parse(time.RFC3339, endStr)
 		}
 		b.Summary = sum
+		if ai != "" {
+			b.AISummary = ai
+		}
 		if b.ByTool == nil {
 			b.ByTool = map[string]int{}
 		}

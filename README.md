@@ -140,15 +140,47 @@ poll_interval_sec: 3 # how often to sample tmux
 summary_interval_min: 30 # block size
 min_focus_min: 15 # below this → no journal/push
 idle_threshold_sec: 120 # pause tracking after N sec of no input
-push_db: true # commit + push journal repo
-repo_path: ~/flowd-private # local journal repo
-git_remote: git@github.com:you/my-journal.git
+repo_path: ~/flowd-private # journal + DB live here
+git_remote: git@github.com:you/my-journal.git # blank = local-only, no push
 branch: main
-db_path: ~/.local/share/flowd/flowd.db
+db_path: ~/flowd-private/flowd.db # SQLite stays inside the repo
 watch_dirs:
   - ~/code
   - ~/work
+
+# AI summaries (optional)
+ai_enabled: true
+ai_command: "claude --print" # any CLI that reads stdin → stdout
+ai_prompt: "Summarize this 30-min coding session in 2 sentences."
 ```
+
+### AI integration
+
+Flowd can pipe each block's summary through any CLI AI tool that reads
+stdin and prints to stdout. Examples that work out of the box:
+
+| Tool                | `ai_command`                    |
+| ------------------- | ------------------------------- |
+| Claude Code         | `claude --print`                |
+| Codex CLI           | `codex exec`                    |
+| `llm` (Simon W.)    | `llm -m claude-3-5-sonnet`      |
+| Pi dev              | `pi chat`                       |
+| OpenCode            | `opencode run`                  |
+
+Stdin to the tool is `<ai_prompt>\n\n---\n\n<block summary>`. Stdout is
+saved to the DB, embedded in the journal markdown as a quote, and shown
+inline under each block in the dashboard.
+
+For an aggregate AI recap of a whole period, run:
+
+```sh
+fw dashboard today --ai-recap
+fw dashboard week  --ai-recap
+```
+
+This concatenates every block summary in the period and runs the AI
+command once. The result fills the **AI insights** card at the top of the
+dashboard.
 
 `fw init` writes this for you. Edit by hand any time.
 
@@ -164,21 +196,21 @@ anything when no tmux client is attached.
 
 ## Journal repo
 
-A separate, **private** git repo (NOT your project repo) where flowd writes
-summaries. One file per month: `2026-04.md`, `2026-05.md`, …
+A separate, **private** git repo (NOT your project repo) where flowd
+stores everything: monthly markdown summaries (`2026-04.md`, `2026-05.md`,
+…) **and** the SQLite database. Keeping the DB in the repo means your
+full history is backed up to git automatically.
 
-Each block appends under a day heading. Pushed on the same 30-min cadence
-when the block has real activity.
+`fw init` asks for a remote URL up front:
 
-To set up:
+- **Remote provided** → flowd `git clone`s it (or `git init` + `remote add`
+  if the remote is empty), then pushes after every active block.
+- **Blank** → local-only repo. No push. You can add a remote later with
+  `git remote add origin <url>`.
 
-```sh
-# during fw init, answer "yes" to journal repo and paste a remote URL.
-# OR manually:
-mkdir ~/flowd-private && cd ~/flowd-private
-git init -b main
-git remote add origin git@github.com:you/my-journal.git
-```
+The repo gets a `.gitignore` for SQLite work files (`flowd.db-wal`,
+`flowd.db-shm`). Before each push, flowd runs
+`PRAGMA wal_checkpoint(TRUNCATE)` so the on-disk `.db` is current.
 
 ---
 

@@ -28,6 +28,8 @@ type dashPayload struct {
 	StreakDays    int            `json:"streak_days"`
 	TopRepo       string         `json:"top_repo"`
 	TopBranch     string         `json:"top_branch"`
+	AIRecap       string         `json:"ai_recap"`        // aggregate AI insight (optional)
+	AIPerBlock    int            `json:"ai_per_block"`    // count of blocks with AI summary
 }
 
 type hourBucket struct {
@@ -44,6 +46,7 @@ type tlBlock struct {
 	Focus    int    `json:"focus"`
 	Switches int    `json:"switches"`
 	Summary  string `json:"summary"`
+	AI       string `json:"ai,omitempty"`
 }
 
 func buildDashPayload(period string, blocks []Block) dashPayload {
@@ -84,7 +87,11 @@ func buildDashPayload(period string, blocks []Block) dashPayload {
 			Focus:    b.FocusedMin,
 			Switches: b.Switches,
 			Summary:  b.Summary,
+			AI:       b.AISummary,
 		})
+		if b.AISummary != "" {
+			p.AIPerBlock++
+		}
 	}
 	p.TotalBlocks = len(blocks)
 	p.TopRepo = topKey(repoMin)
@@ -157,9 +164,11 @@ func streak(blocks []Block) int {
 	return streak
 }
 
-// RenderDashboard writes a self-contained HTML file.
-func RenderDashboard(blocks []Block, period, outPath string) error {
+// RenderDashboard writes a self-contained HTML file. aiRecap is optional;
+// pass "" to skip the aggregate AI block in the UI.
+func RenderDashboard(blocks []Block, period, aiRecap, outPath string) error {
 	data := buildDashPayload(period, blocks)
+	data.AIRecap = aiRecap
 	js, err := json.Marshal(data)
 	if err != nil {
 		return err
@@ -246,6 +255,7 @@ h2 .hint{font-weight:400;color:var(--mute);font-size:12px;margin-left:6px}
 .repo{font-weight:600;color:var(--fg)}
 .branch{font-size:11px;color:var(--accent2);background:rgba(66,212,182,.1);padding:2px 7px;border-radius:99px}
 .tl-stats{margin-top:6px;font-size:12px;color:var(--mute)}
+.tl-ai{margin-top:8px;font-size:12.5px;color:var(--fg);background:rgba(124,92,255,.07);border-left:2px solid var(--accent);padding:7px 10px;border-radius:0 6px 6px 0;line-height:1.5;white-space:pre-wrap}
 .bar{height:6px;background:#1a212c;border-radius:3px;overflow:hidden;margin-top:8px}
 .bar i{display:block;height:100%;background:var(--grad)}
 .lang-list{display:flex;flex-direction:column;gap:10px}
@@ -292,11 +302,11 @@ footer{margin-top:36px;color:var(--mute);font-size:12px;text-align:center}
         <div class="heatmap" id="heatmap"></div>
         <div class="scale">less <span class="sw" style="background:#1a212c"></span><span class="sw" style="background:#2b2151"></span><span class="sw" style="background:#4a3aaa"></span><span class="sw" style="background:#7c5cff"></span><span class="sw" style="background:#42d4b6"></span> more</div>
       </div>
-      <div class="ai-card">
+      <div class="ai-card" id="aiCard">
         <div class="ai-icon">✨</div>
-        <div>
-          <div class="title">AI insights</div>
-          <div class="sub">Coming soon. Patterns, focus tips, and weekly summaries generated from your activity will appear here.</div>
+        <div style="flex:1">
+          <div class="title" id="aiTitle">AI insights</div>
+          <div class="sub" id="aiBody">Set <code>ai_enabled: true</code> and an <code>ai_command</code> in your config to see AI-generated insights here. Run <code>fw dashboard --ai-recap</code> for a period-wide aggregate.</div>
         </div>
       </div>
     </div>
@@ -324,9 +334,22 @@ footer{margin-top:36px;color:var(--mute);font-size:12px;text-align:center}
 
 <script>
 const DATA = __FLOWD_DATA__;
+function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 
 (function(){
   document.getElementById('genTime').textContent = "Generated " + DATA.generated;
+
+  // AI card
+  if (DATA.ai_recap) {
+    document.getElementById('aiTitle').textContent = "AI recap — " + (DATA.period === 'week' ? 'this week' : 'today');
+    const body = document.getElementById('aiBody');
+    body.textContent = DATA.ai_recap;
+    body.style.color = "var(--fg)";
+    body.style.whiteSpace = "pre-wrap";
+  } else if (DATA.ai_per_block > 0) {
+    document.getElementById('aiTitle').textContent = "AI insights · " + DATA.ai_per_block + " block" + (DATA.ai_per_block===1?'':'s');
+    document.getElementById('aiBody').innerHTML = "Per-block AI summaries are inline in the timeline below. Run <code>fw dashboard --ai-recap</code> for an aggregate recap.";
+  }
   if (DATA.period === "week") {
     document.getElementById('tabW').classList.add('on');
     document.getElementById('hmTitle').firstChild.textContent = "Activity heatmap ";
@@ -445,6 +468,7 @@ const DATA = __FLOWD_DATA__;
       '</div>'+
       '<div class="tl-stats">'+b.focus+'m focus · '+b.switches+' switches</div>'+
       '<div class="bar"><i style="width:'+(100*b.focus/tlMax)+'%"></i></div>'+
+      (b.ai?'<div class="tl-ai">✨ '+escapeHTML(b.ai)+'</div>':'')+
       '</div>';
     tl.appendChild(el);
   });
