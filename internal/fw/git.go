@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+
 var extLang = map[string]string{
 	".go": "Go", ".rs": "Rust", ".py": "Python", ".js": "JavaScript",
 	".ts": "TypeScript", ".tsx": "TypeScript", ".jsx": "JavaScript",
@@ -28,6 +29,58 @@ func langOf(ext string) string {
 		return "other"
 	}
 	return strings.TrimPrefix(ext, ".")
+}
+
+// LangFromCommand maps a runtime process name to a language.
+// Returns "" if unknown.
+func LangFromCommand(cmd string) string {
+	switch cmd {
+	case "node", "bun":
+		return "JavaScript"
+	case "deno":
+		return "TypeScript"
+	case "python", "python3":
+		return "Python"
+	case "go":
+		return "Go"
+	case "cargo":
+		return "Rust"
+	case "ruby":
+		return "Ruby"
+	case "java":
+		return "Java"
+	case "php":
+		return "PHP"
+	case "elixir":
+		return "Elixir"
+	}
+	return ""
+}
+
+// ScanLangs returns file-extension counts for source files in dir (maxdepth 2).
+// Used when no git repo is available.
+func ScanLangs(dir string) map[string]int {
+	out, err := exec.Command("find", dir,
+		"-maxdepth", "2", "-type", "f",
+		"!", "-path", "*/.*",          // skip hidden
+		"!", "-path", "*/node_modules/*",
+		"!", "-path", "*/vendor/*",
+	).Output()
+	if err != nil {
+		return nil
+	}
+	counts := map[string]int{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		ext := strings.ToLower(filepath.Ext(line))
+		if ext == "" {
+			continue
+		}
+		lang := langOf(ext)
+		if lang != "other" {
+			counts[lang]++
+		}
+	}
+	return counts
 }
 
 func RepoRoot(cwd string) string {
