@@ -62,6 +62,17 @@ func DefaultPath() string {
 	return filepath.Join(home, ".config", "flowd", "config.yaml")
 }
 
+func Write(path string, cfg *Config) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	return os.WriteFile(path, data, 0640)
+}
+
 func expandHome(path string) string {
 	if len(path) >= 2 && path[:2] == "~/" {
 		home, _ := os.UserHomeDir()

@@ -13,6 +13,7 @@ import (
 
 	"github.com/mahi/flowd/internal/config"
 	"github.com/mahi/flowd/internal/db"
+	"github.com/mahi/flowd/internal/initwizard"
 	"github.com/mahi/flowd/internal/logger"
 	"github.com/mahi/flowd/internal/report"
 	"github.com/mahi/flowd/internal/session"
@@ -38,6 +39,7 @@ func main() {
 	root.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
 
 	root.AddCommand(
+		cmdInit(),
 		cmdStart(),
 		cmdStop(),
 		cmdStatus(),
@@ -56,6 +58,45 @@ func loadConfig() (*config.Config, error) {
 
 func openDB(cfg *config.Config) (*db.DB, error) {
 	return db.Open(cfg.DBPath)
+}
+
+func cmdInit() *cobra.Command {
+	var force bool
+	cmd := &cobra.Command{
+		Use:   "init",
+		Short: "Interactive setup — create config and initialize DB",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dest := cfgPath
+			if _, err := os.Stat(dest); err == nil && !force {
+				fmt.Printf("config already exists at %s\n", dest)
+				fmt.Println("run with --force to overwrite")
+				return nil
+			}
+
+			cfg, err := initwizard.Run()
+			if err != nil {
+				return err
+			}
+
+			if err := config.Write(dest, cfg); err != nil {
+				return fmt.Errorf("write config: %w", err)
+			}
+			fmt.Printf("\n  config written → %s\n", dest)
+
+			// ensure DB is created and migrated
+			d, err := db.Open(cfg.DBPath)
+			if err != nil {
+				return fmt.Errorf("init db: %w", err)
+			}
+			d.Close()
+			fmt.Printf("  database ready → %s\n", cfg.DBPath)
+			fmt.Println()
+			fmt.Println("  run `fw start` to begin tracking")
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite existing config")
+	return cmd
 }
 
 func cmdStart() *cobra.Command {
