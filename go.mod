@@ -1,4 +1,4 @@
-module github.com/mahi/flowd
+module github.com/mahi160/flowd
 
 go 1.26.2
 

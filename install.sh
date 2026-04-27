@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ── config ────────────────────────────────────────────────────────────────────
-REPO="${FLOWD_REPO:-git@github.com:mahi/flowd.git}"
+REPO="${FLOWD_REPO:-git@github.com:mahi160/flowd.git}"
 INSTALL_DIR="${FLOWD_INSTALL_DIR:-/usr/local/bin}"
 BINARY="fw"
 # ─────────────────────────────────────────────────────────────────────────────
