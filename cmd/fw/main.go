@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
 	"github.com/mahi/flowd/internal/config"
 	"github.com/mahi/flowd/internal/db"
 	"github.com/mahi/flowd/internal/logger"
+	"github.com/mahi/flowd/internal/session"
 )
 
 var (
@@ -64,11 +68,16 @@ func cmdStart() *cobra.Command {
 			}
 			defer d.Close()
 
-			fmt.Println("flowd daemon starting (foreground mode)")
+			fmt.Println("flowd daemon starting (foreground mode, ctrl+c to stop)")
 			logger.L.Info("daemon started", "db", cfg.DBPath, "poll_sec", cfg.PollIntervalSec)
 
-			// Phase 2 will wire collectors here
-			select {}
+			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer cancel()
+
+			tracker := session.NewTracker(d, cfg.PollIntervalSec)
+			tracker.Run(ctx)
+			fmt.Println("flowd stopped")
+			return nil
 		},
 	}
 }

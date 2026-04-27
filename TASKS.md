@@ -10,11 +10,11 @@
 
 ## Phase 2 - Telemetry
 
-- [ ] tmux active pane collector
-- [ ] cwd collector
-- [ ] active command collector
-- [ ] focus duration tracker
-- [ ] event persistence
+- [x] tmux active pane collector
+- [x] cwd collector
+- [x] active command collector
+- [x] focus duration tracker
+- [x] event persistence
 
 ## Phase 3 - Intelligence
 
