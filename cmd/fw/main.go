@@ -16,6 +16,7 @@ import (
 	"github.com/mahi/flowd/internal/logger"
 	"github.com/mahi/flowd/internal/session"
 	"github.com/mahi/flowd/internal/summarizer"
+	flowsync "github.com/mahi/flowd/internal/sync"
 )
 
 var (
@@ -89,6 +90,17 @@ func cmdStart() *cobra.Command {
 			go func() {
 				defer wg.Done()
 				sched := summarizer.NewScheduler(d, cfg.SummaryIntervalMin)
+				sched.OnBlock = func(ctx context.Context, b *summarizer.Block) {
+					if err := flowsync.WriteLog(cfg.RepoPath, b); err != nil {
+						logger.L.Error("write log", "err", err)
+						return
+					}
+					if cfg.PushDB {
+						if err := flowsync.Push(ctx, cfg.RepoPath, cfg.Branch); err != nil {
+							logger.L.Warn("sync push failed", "err", err)
+						}
+					}
+				}
 				sched.Run(ctx)
 			}()
 

@@ -12,6 +12,8 @@ import (
 type Scheduler struct {
 	db          *db.DB
 	intervalMin int
+	// OnBlock is called after each successful block build (optional).
+	OnBlock func(ctx context.Context, b *Block)
 }
 
 func NewScheduler(d *db.DB, intervalMin int) *Scheduler {
@@ -33,8 +35,13 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 		end := next
 		start := end.Add(-interval)
-		if _, err := BuildBlock(ctx, s.db, start, end); err != nil {
+		block, err := BuildBlock(ctx, s.db, start, end)
+		if err != nil {
 			slog.Error("build block", "err", err)
+			continue
+		}
+		if s.OnBlock != nil {
+			s.OnBlock(ctx, block)
 		}
 	}
 }
