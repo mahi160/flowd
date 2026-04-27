@@ -27,15 +27,21 @@ type PaneMeta struct {
 type Tracker struct {
 	db        *DB
 	interval  time.Duration
+	idleSec   int
 	watchDirs []string
 	last      *Pane
 }
 
-func NewTracker(d *DB, pollSec int, watchDirs []string) *Tracker {
+func NewTracker(d *DB, pollSec, idleSec int, watchDirs []string) *Tracker {
+	dirs := make([]string, len(watchDirs))
+	for i, x := range watchDirs {
+		dirs[i] = strings.TrimRight(x, "/") + "/"
+	}
 	return &Tracker{
 		db:        d,
 		interval:  time.Duration(pollSec) * time.Second,
-		watchDirs: watchDirs,
+		idleSec:   idleSec,
+		watchDirs: dirs,
 	}
 }
 
@@ -71,11 +77,17 @@ func (t *Tracker) waitForTmux(ctx context.Context) {
 }
 
 func (t *Tracker) poll() {
-	session := AttachedSession()
+	session, idle := AttachedSession()
 	if session == "" {
-		// detached / out of focus — do not record
 		if t.last != nil {
-			slog.Debug("tmux detached, idle")
+			slog.Debug("tmux detached")
+			t.last = nil
+		}
+		return
+	}
+	if t.idleSec > 0 && idle >= t.idleSec {
+		if t.last != nil {
+			slog.Debug("user idle", "sec", idle)
 			t.last = nil
 		}
 		return
@@ -113,6 +125,7 @@ func (t *Tracker) inWatchDirs(cwd string) bool {
 	if len(t.watchDirs) == 0 {
 		return true
 	}
+	cwd = strings.TrimRight(cwd, "/") + "/"
 	for _, d := range t.watchDirs {
 		if strings.HasPrefix(cwd, d) {
 			return true

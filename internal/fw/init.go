@@ -53,6 +53,7 @@ func RunInitWizard() (*Config, error) {
 	cfg.PollIntervalSec = askInt(r, "tmux poll interval (seconds)", cfg.PollIntervalSec)
 	cfg.SummaryIntervalMin = askInt(r, "summary block interval (minutes)", cfg.SummaryIntervalMin)
 	cfg.MinFocusMin = askInt(r, "min focused minutes per block to push", cfg.MinFocusMin)
+	cfg.IdleThresholdSec = askInt(r, "idle threshold (sec) — pause tracking after no input", cfg.IdleThresholdSec)
 
 	fmt.Println()
 	fmt.Println("  ── Journal repo ──")

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -28,7 +29,7 @@ func Run() {
 	}
 	root.PersistentFlags().StringVar(&cfgPath, "config", DefaultConfigPath(), "config file path")
 	root.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
-	root.AddCommand(cmdInit(), cmdStart(), cmdStatus(), cmdSummary(), cmdReport(), cmdSetupTmux())
+	root.AddCommand(cmdInit(), cmdStart(), cmdStatus(), cmdSummary(), cmdReport(), cmdDashboard(), cmdSetupTmux())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -105,7 +106,7 @@ func cmdStart() *cobra.Command {
 
 			go func() {
 				defer wg.Done()
-				NewTracker(d, cfg.PollIntervalSec, cfg.WatchDirs).Run(ctx)
+				NewTracker(d, cfg.PollIntervalSec, cfg.IdleThresholdSec, cfg.WatchDirs).Run(ctx)
 			}()
 
 			go func() {
@@ -132,7 +133,7 @@ func runScheduler(ctx context.Context, d *DB, cfg *Config) {
 		}
 		end := next
 		start := end.Add(-interval)
-		b, err := BuildBlock(ctx, d, start, end, cfg.PollIntervalSec)
+		b, err := BuildBlock(ctx, d, start, end, cfg.PollIntervalSec, true)
 		if err != nil {
 			slog.Error("build block", "err", err)
 			continue
@@ -202,7 +203,7 @@ func cmdSummary() *cobra.Command {
 			u := now.UnixNano()
 			end := time.Unix(0, u-(u%iv.Nanoseconds())).UTC()
 			start := end.Add(-iv)
-			b, err := BuildBlock(cmd.Context(), d, start, end, cfg.PollIntervalSec)
+			b, err := BuildBlock(cmd.Context(), d, start, end, cfg.PollIntervalSec, false)
 			if err != nil {
 				return err
 			}
@@ -215,7 +216,7 @@ func cmdSummary() *cobra.Command {
 func cmdReport() *cobra.Command {
 	return &cobra.Command{
 		Use:   "report [today|week]",
-		Short: "Activity report",
+		Short: "Text activity report",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := LoadConfig(cfgPath)
 			if err != nil {
@@ -230,18 +231,8 @@ func cmdReport() *cobra.Command {
 			if len(args) > 0 {
 				period = args[0]
 			}
-			now := time.Now()
-			var start, end time.Time
-			switch period {
-			case "week":
-				end = now
-				start = now.AddDate(0, 0, -7)
-			default:
-				y, m, dd := now.Date()
-				start = time.Date(y, m, dd, 0, 0, 0, 0, now.Location())
-				end = start.Add(24 * time.Hour)
-			}
-			blocks, err := QueryBlocks(cmd.Context(), d, start, end)
+			start, end := PeriodRange(period, time.Now())
+			blocks, err := LoadBlocks(cmd.Context(), d, start, end)
 			if err != nil {
 				return err
 			}
@@ -249,6 +240,52 @@ func cmdReport() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func cmdDashboard() *cobra.Command {
+	var noOpen bool
+	var outFlag string
+	c := &cobra.Command{
+		Use:   "dashboard [today|week]",
+		Short: "Render an HTML dashboard and open it in the browser",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := LoadConfig(cfgPath)
+			if err != nil {
+				return err
+			}
+			d, err := OpenDB(cfg.DBPath)
+			if err != nil {
+				return err
+			}
+			defer d.Close()
+			period := "today"
+			if len(args) > 0 {
+				period = args[0]
+			}
+			start, end := PeriodRange(period, time.Now())
+			blocks, err := LoadBlocks(cmd.Context(), d, start, end)
+			if err != nil {
+				return err
+			}
+			out := outFlag
+			if out == "" {
+				out = filepath.Join(os.TempDir(), fmt.Sprintf("flowd-%s.html", period))
+			}
+			if err := RenderDashboard(blocks, period, out); err != nil {
+				return err
+			}
+			fmt.Printf("dashboard → %s\n", out)
+			if !noOpen {
+				if err := OpenInBrowser(out); err != nil {
+					fmt.Printf("(could not open browser: %v — open the file manually)\n", err)
+				}
+			}
+			return nil
+		},
+	}
+	c.Flags().BoolVar(&noOpen, "no-open", false, "do not open the browser")
+	c.Flags().StringVar(&outFlag, "out", "", "output file path (default: temp dir)")
+	return c
 }
 
 func cmdSetupTmux() *cobra.Command {

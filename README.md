@@ -58,6 +58,7 @@ fw status        # check db
 fw summary       # build + print last block
 fw report today  # text report for today
 fw report week   # last 7 days
+fw dashboard     # open beautiful HTML dashboard in browser
 ```
 
 `fw init` will offer to add `fw start` to your `~/.tmux.conf` so the daemon
@@ -138,6 +139,7 @@ boundary):**
 poll_interval_sec: 3 # how often to sample tmux
 summary_interval_min: 30 # block size
 min_focus_min: 15 # below this → no journal/push
+idle_threshold_sec: 120 # pause tracking after N sec of no input
 push_db: true # commit + push journal repo
 repo_path: ~/flowd-private # local journal repo
 git_remote: git@github.com:you/my-journal.git
@@ -182,15 +184,16 @@ git remote add origin git@github.com:you/my-journal.git
 
 ## Commands
 
-| Command           | What it does                                 |
-| ----------------- | -------------------------------------------- |
-| `fw init`         | Interactive config setup                     |
-| `fw start`        | Run daemon in foreground                     |
-| `fw status`       | Print DB path + event/block counts           |
-| `fw summary`      | Build the most recent 30-min block, print it |
-| `fw report today` | Text report for today                        |
-| `fw report week`  | Text report for last 7 days                  |
-| `fw setup-tmux`   | Add `fw start` to `~/.tmux.conf`             |
+| Command                      | What it does                                 |
+| ---------------------------- | -------------------------------------------- |
+| `fw init`                    | Interactive config setup                     |
+| `fw start`                   | Run daemon in foreground                     |
+| `fw status`                  | Print DB path + event/block counts           |
+| `fw summary`                 | Build the most recent 30-min block, print it |
+| `fw report today`            | Text report for today                        |
+| `fw report week`             | Text report for last 7 days                  |
+| `fw dashboard [today\|week]` | Generate HTML dashboard, open in browser     |
+| `fw setup-tmux`              | Add `fw start` to `~/.tmux.conf`             |
 
 Flags: `--config <path>`, `--debug`.
 

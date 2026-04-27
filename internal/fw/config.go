@@ -12,6 +12,7 @@ type Config struct {
 	PollIntervalSec    int      `yaml:"poll_interval_sec"`
 	SummaryIntervalMin int      `yaml:"summary_interval_min"`
 	MinFocusMin        int      `yaml:"min_focus_min"`
+	IdleThresholdSec   int      `yaml:"idle_threshold_sec"`
 	PushDB             bool     `yaml:"push_db"`
 	RepoPath           string   `yaml:"repo_path"`
 	GitRemote          string   `yaml:"git_remote"`
@@ -26,6 +27,7 @@ func DefaultConfig() *Config {
 		PollIntervalSec:    3,
 		SummaryIntervalMin: 30,
 		MinFocusMin:        15,
+		IdleThresholdSec:   120,
 		PushDB:             false,
 		RepoPath:           filepath.Join(home, "flowd-private"),
 		Branch:             "main",
