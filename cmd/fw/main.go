@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -45,6 +48,7 @@ func main() {
 		cmdStatus(),
 		cmdSummary(),
 		cmdReport(),
+		cmdSetupTmux(),
 	)
 
 	if err := root.Execute(); err != nil {
@@ -96,6 +100,15 @@ func cmdInit() *cobra.Command {
 				if err := initwizard.SetupRepo(cfg.RepoPath, cfg.GitRemote, cfg.Branch); err != nil {
 					fmt.Printf("  warning: repo setup failed: %v\n", err)
 					fmt.Println("  you can set it up manually — see README for instructions")
+				}
+			}
+
+			// offer tmux autostart
+			if initwizard.AskTmuxAutostart() {
+				if err := setupTmuxAutostart(); err != nil {
+					fmt.Printf("  warning: tmux autostart setup failed: %v\n", err)
+					fmt.Println("  add manually to ~/.tmux.conf:")
+					fmt.Println(`    run-shell "fw start &> /tmp/flowd.log &"`)
 				}
 			}
 
@@ -282,4 +295,62 @@ func cmdReport() *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&htmlOut, "html", false, "output HTML dashboard")
 	return cmd
+}
+
+func cmdSetupTmux() *cobra.Command {
+	return &cobra.Command{
+		Use:   "setup-tmux",
+		Short: "Add fw start to ~/.tmux.conf so it runs when tmux starts",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return setupTmuxAutostart()
+		},
+	}
+}
+
+// setupTmuxAutostart appends a run-shell line to ~/.tmux.conf.
+// Idempotent — skips if the line already exists.
+func setupTmuxAutostart() error {
+	home, _ := os.UserHomeDir()
+	confPath := home + "/.tmux.conf"
+
+	const marker = "fw start"
+
+	// check if already present
+	existing, err := os.ReadFile(confPath)
+	if err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("read tmux.conf: %w", err)
+	}
+	if strings.Contains(string(existing), marker) {
+		fmt.Println("  tmux autostart already configured in ~/.tmux.conf")
+		return nil
+	}
+
+	f, err := os.OpenFile(confPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("open tmux.conf: %w", err)
+	}
+	defer f.Close()
+
+	line := "\n# flowd — start activity tracker with tmux\nrun-shell \"fw start &> /tmp/flowd.log &\"\n"
+	if _, err := f.WriteString(line); err != nil {
+		return fmt.Errorf("write tmux.conf: %w", err)
+	}
+
+	fmt.Println("  added to ~/.tmux.conf:")
+	fmt.Println(`    run-shell "fw start &> /tmp/flowd.log &"`)
+	fmt.Println("  flowd will start automatically when tmux starts")
+
+	// reload tmux config if a server is running
+	if err := exec.Command("tmux", "source-file", confPath).Run(); err == nil {
+		fmt.Println("  tmux config reloaded")
+	}
+	return nil
+}
+
+// confirmPrompt is used by init to ask about tmux autostart inline.
+func confirmPrompt(prompt string) bool {
+	fmt.Printf("  %s (y/n) [n]: ", prompt)
+	r := bufio.NewReader(os.Stdin)
+	line, _ := r.ReadString('\n')
+	return strings.ToLower(strings.TrimSpace(line)) == "y"
 }

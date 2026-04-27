@@ -109,8 +109,8 @@ func BuildBlock(ctx context.Context, d *db.DB, start, end time.Time) (*Block, er
 func templateSummary(b *Block) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "## %s – %s\n\n",
-		b.StartTS.Format("15:04"),
-		b.EndTS.Format("15:04"),
+		b.StartTS.Local().Format("15:04"),
+		b.EndTS.Local().Format("15:04"),
 	)
 	if b.Repo != "" {
 		fmt.Fprintf(&sb, "**Repo:** %s\n", b.Repo)
