@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -68,8 +70,11 @@ func Run() (*config.Config, error) {
 	fmt.Println("  ── Git sync ──────────────────────────────────────")
 	cfg.PushDB = askBool(r, "sync logs to a private git repo", cfg.PushDB)
 	if cfg.PushDB {
-		cfg.RepoPath = ask(r, "repo path", cfg.RepoPath)
+		cfg.RepoPath = ask(r, "local repo path", cfg.RepoPath)
 		cfg.Branch = ask(r, "branch", cfg.Branch)
+		fmt.Println("  Git remote URL (e.g. git@github.com:you/flowd-private.git)")
+		fmt.Println("  Leave blank to skip — you can add it later with: git remote add origin <url>")
+		cfg.GitRemote = ask(r, "remote URL", cfg.GitRemote)
 	}
 
 	fmt.Println()
@@ -78,4 +83,61 @@ func Run() (*config.Config, error) {
 	cfg.AICommand = ask(r, "AI command", cfg.AICommand)
 
 	return cfg, nil
+}
+
+// SetupRepo initialises the local repo directory and wires the remote if provided.
+// Safe to call even if the repo already exists.
+func SetupRepo(repoPath, remote, branch string) error {
+	repoPath = expandHome(repoPath)
+
+	if err := os.MkdirAll(repoPath, 0750); err != nil {
+		return fmt.Errorf("create repo dir: %w", err)
+	}
+
+	gitDir := filepath.Join(repoPath, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		if out, err := gitIn(repoPath, "init", "-b", branch); err != nil {
+			return fmt.Errorf("git init: %w\n%s", err, out)
+		}
+		fmt.Printf("  git init → %s\n", repoPath)
+	}
+
+	if remote == "" {
+		return nil
+	}
+
+	// check if origin already set
+	out, getErr := gitIn(repoPath, "remote", "get-url", "origin")
+	existing := strings.TrimSpace(out)
+	if getErr != nil {
+		// origin does not exist yet
+		if out, err := gitIn(repoPath, "remote", "add", "origin", remote); err != nil {
+			return fmt.Errorf("git remote add: %w\n%s", err, out)
+		}
+		fmt.Printf("  remote origin → %s\n", remote)
+	} else if existing != remote {
+		if out, err := gitIn(repoPath, "remote", "set-url", "origin", remote); err != nil {
+			return fmt.Errorf("git remote set-url: %w\n%s", err, out)
+		}
+		fmt.Printf("  remote origin updated → %s\n", remote)
+	} else {
+		fmt.Printf("  remote origin already set → %s\n", existing)
+	}
+
+	return nil
+}
+
+func gitIn(dir string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+func expandHome(path string) string {
+	if len(path) >= 2 && path[:2] == "~/" {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[2:])
+	}
+	return path
 }
