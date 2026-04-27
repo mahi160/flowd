@@ -14,6 +14,7 @@ import (
 	"github.com/mahi/flowd/internal/config"
 	"github.com/mahi/flowd/internal/db"
 	"github.com/mahi/flowd/internal/logger"
+	"github.com/mahi/flowd/internal/report"
 	"github.com/mahi/flowd/internal/session"
 	"github.com/mahi/flowd/internal/summarizer"
 	flowsync "github.com/mahi/flowd/internal/sync"
@@ -184,7 +185,8 @@ func cmdSummary() *cobra.Command {
 }
 
 func cmdReport() *cobra.Command {
-	return &cobra.Command{
+	var htmlOut bool
+	cmd := &cobra.Command{
 		Use:   "report [today|week]",
 		Short: "Show activity report",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -209,39 +211,25 @@ func cmdReport() *cobra.Command {
 			case "week":
 				end = now
 				start = now.AddDate(0, 0, -7)
-			default: // today
+			default:
 				y, m, day := now.Date()
 				start = time.Date(y, m, day, 0, 0, 0, 0, now.Location())
 				end = start.Add(24 * time.Hour)
 			}
 
-			rows, err := d.QueryContext(cmd.Context(),
-				`SELECT start_ts, end_ts, repo, focused_minutes, switches, tools, summary
-				 FROM blocks WHERE start_ts >= ? AND start_ts < ? ORDER BY start_ts`,
-				start.UTC(), end.UTC(),
-			)
+			blocks, err := report.QueryBlocks(cmd.Context(), d, start, end)
 			if err != nil {
 				return err
 			}
-			defer rows.Close()
 
-			count := 0
-			totalFocus := 0
-			for rows.Next() {
-				var startTS, endTS, repo, tools, summary string
-				var focused, switches int
-				rows.Scan(&startTS, &endTS, &repo, &focused, &switches, &tools, &summary)
-				fmt.Printf("── %s → %s  repo:%-20s focus:%dm switches:%d\n",
-					startTS, endTS, repo, focused, switches)
-				totalFocus += focused
-				count++
-			}
-			if count == 0 {
-				fmt.Printf("no blocks for %s\n", period)
+			if htmlOut {
+				fmt.Print(report.HTMLReport(blocks, period))
 			} else {
-				fmt.Printf("\ntotal: %d blocks, %d focused minutes\n", count, totalFocus)
+				fmt.Print(report.TextReport(blocks, period))
 			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&htmlOut, "html", false, "output HTML dashboard")
+	return cmd
 }
