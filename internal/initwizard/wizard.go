@@ -67,13 +67,16 @@ func Run() (*config.Config, error) {
 	cfg.TrackKeys = askBool(r, "track key counts (aggregated, no raw keys)", cfg.TrackKeys)
 
 	fmt.Println()
-	fmt.Println("  ── Git sync ──────────────────────────────────────")
-	cfg.PushDB = askBool(r, "sync logs to a private git repo", cfg.PushDB)
+	fmt.Println("  ── Journal repo (for syncing summaries) ──────────")
+	fmt.Println("  A separate private repo where Flowd writes your work summaries.")
+	fmt.Println("  NOT your project repo — a dedicated journal repo only for Flowd.")
+	fmt.Println("  Entries are appended to YYYY-MM.md files every 30 min.")
+	cfg.PushDB = askBool(r, "sync summaries to a private journal repo", cfg.PushDB)
 	if cfg.PushDB {
-		cfg.RepoPath = ask(r, "local repo path", cfg.RepoPath)
+		cfg.RepoPath = ask(r, "local journal repo path", cfg.RepoPath)
 		cfg.Branch = ask(r, "branch", cfg.Branch)
-		fmt.Println("  Git remote URL (e.g. git@github.com:you/flowd-private.git)")
-		fmt.Println("  Leave blank to skip — you can add it later with: git remote add origin <url>")
+		fmt.Println("  Remote URL for the journal repo (e.g. git@github.com:you/my-work-journal.git)")
+		fmt.Println("  Leave blank to skip — add later with: git remote add origin <url>")
 		cfg.GitRemote = ask(r, "remote URL", cfg.GitRemote)
 	}
 

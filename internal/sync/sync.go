@@ -13,16 +13,17 @@ import (
 	"github.com/mahi/flowd/internal/summarizer"
 )
 
-// WriteLog appends a block summary to a daily markdown log in repoPath.
+// WriteLog appends a block summary to the monthly markdown log in repoPath.
+// Files are named YYYY-MM.md and appended every 30-min block.
 func WriteLog(repoPath string, block *summarizer.Block) error {
 	if err := os.MkdirAll(repoPath, 0750); err != nil {
-		return fmt.Errorf("create repo dir: %w", err)
+		return fmt.Errorf("create journal dir: %w", err)
 	}
 
-	date := block.StartTS.Local().Format("2006-01-02")
-	logFile := filepath.Join(repoPath, date+".md")
+	local := block.StartTS.Local()
+	month := local.Format("2006-01")
+	logFile := filepath.Join(repoPath, month+".md")
 
-	// Ensure daily header exists
 	existing, err := os.ReadFile(logFile)
 	if err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("read log: %w", err)
@@ -30,11 +31,19 @@ func WriteLog(repoPath string, block *summarizer.Block) error {
 
 	var content strings.Builder
 	if len(existing) == 0 {
-		fmt.Fprintf(&content, "# %s\n\n", date)
+		// Monthly header — written once
+		fmt.Fprintf(&content, "# %s\n\n", local.Format("January 2006"))
 	} else {
 		content.Write(existing)
 		content.WriteString("\n")
 	}
+
+	// Day marker when the date changes within the file
+	dayHeading := "### " + local.Format("Monday, 02 Jan")
+	if !strings.Contains(string(existing), dayHeading) {
+		fmt.Fprintf(&content, "%s\n\n", dayHeading)
+	}
+
 	content.WriteString(block.Summary)
 	content.WriteString("\n")
 
@@ -44,9 +53,8 @@ func WriteLog(repoPath string, block *summarizer.Block) error {
 	return nil
 }
 
-// Push commits and pushes the repo with retry.
+// Push commits and pushes the journal repo with retry.
 func Push(ctx context.Context, repoPath, branch string) error {
-	// init repo if needed
 	if _, err := os.Stat(filepath.Join(repoPath, ".git")); os.IsNotExist(err) {
 		if err := gitRun(ctx, repoPath, "init", "-b", branch); err != nil {
 			return fmt.Errorf("git init: %w", err)
@@ -58,14 +66,13 @@ func Push(ctx context.Context, repoPath, branch string) error {
 	}
 
 	msg := fmt.Sprintf("flowd: %s", time.Now().UTC().Format("2006-01-02T15:04Z"))
-	// commit may fail if nothing staged — that's fine
-	_ = gitRun(ctx, repoPath, "commit", "-m", msg)
+	_ = gitRun(ctx, repoPath, "commit", "-m", msg) // no-op if nothing staged
 
 	if err := gitRunWithRetry(ctx, repoPath, 3, "push", "origin", branch); err != nil {
 		slog.Warn("git push failed", "err", err)
 		return err
 	}
-	slog.Info("synced", "repo", repoPath)
+	slog.Info("journal synced", "repo", repoPath)
 	return nil
 }
 
