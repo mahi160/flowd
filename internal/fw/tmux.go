@@ -74,20 +74,3 @@ func ActivePane(session string) (*Pane, error) {
 	}, nil
 }
 
-// ClassifyCommand maps a process name to a tool category.
-func ClassifyCommand(cmd string) string {
-	switch cmd {
-	case "nvim", "vim", "vi", "hx", "code":
-		return "editor"
-	case "lazygit", "git", "gh", "tig":
-		return "git"
-	case "claude", "gemini", "codex", "aider", "cursor":
-		return "ai"
-	case "zsh", "bash", "fish", "sh":
-		return "shell"
-	case "node", "python", "python3", "go", "cargo", "bun", "deno":
-		return "runtime"
-	default:
-		return "other"
-	}
-}
