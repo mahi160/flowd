@@ -1,0 +1,72 @@
+package fw
+
+import (
+	"fmt"
+	"os/exec"
+	"strings"
+)
+
+type Pane struct {
+	Session string
+	Window  string
+	Pane    string
+	PaneID  string
+	Command string
+	Cwd     string
+}
+
+func TmuxRunning() bool {
+	return exec.Command("tmux", "list-sessions").Run() == nil
+}
+
+// AttachedSession returns the session name of the first attached client,
+// or "" if no client is attached (tmux detached / out of focus).
+func AttachedSession() string {
+	out, err := exec.Command("tmux", "list-clients", "-F", "#{client_session}").Output()
+	if err != nil {
+		return ""
+	}
+	for _, s := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// ActivePane returns the active pane of the given session.
+func ActivePane(session string) (*Pane, error) {
+	out, err := exec.Command("tmux", "display-message", "-p", "-t", session,
+		"-F", "#{session_name}|#{window_name}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_current_path}",
+	).Output()
+	if err != nil {
+		return nil, fmt.Errorf("tmux display-message: %w", err)
+	}
+	parts := strings.SplitN(strings.TrimSpace(string(out)), "|", 6)
+	if len(parts) < 6 {
+		return nil, fmt.Errorf("bad tmux output: %q", out)
+	}
+	return &Pane{
+		Session: parts[0], Window: parts[1], Pane: parts[2],
+		PaneID: parts[3], Command: parts[4], Cwd: parts[5],
+	}, nil
+}
+
+// ClassifyCommand maps a process name to a tool category.
+func ClassifyCommand(cmd string) string {
+	switch cmd {
+	case "nvim", "vim", "vi", "hx", "code":
+		return "editor"
+	case "lazygit", "git", "gh", "tig":
+		return "git"
+	case "claude", "gemini", "codex", "aider", "cursor":
+		return "ai"
+	case "zsh", "bash", "fish", "sh":
+		return "shell"
+	case "node", "python", "python3", "go", "cargo", "bun", "deno":
+		return "runtime"
+	default:
+		return "other"
+	}
+}

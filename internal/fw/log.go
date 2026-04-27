@@ -1,4 +1,4 @@
-package logger
+package fw
 
 import (
 	"log/slog"
@@ -7,7 +7,7 @@ import (
 
 var L *slog.Logger
 
-func Init(debug bool) {
+func InitLogger(debug bool) {
 	level := slog.LevelInfo
 	if debug {
 		level = slog.LevelDebug
