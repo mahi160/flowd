@@ -111,36 +111,38 @@ type FileStat struct {
 	Added, Removed int
 }
 
+// parseNumstat merges git --numstat output into a FileStat map.
+func parseNumstat(s string, files map[string]FileStat) {
+	for _, ln := range strings.Split(strings.TrimSpace(s), "\n") {
+		if ln == "" {
+			continue
+		}
+		parts := strings.Fields(ln)
+		if len(parts) < 3 {
+			continue
+		}
+		a, _ := strconv.Atoi(parts[0]) // "-" → 0 for binary files
+		r, _ := strconv.Atoi(parts[1])
+		f := parts[2]
+		cur := files[f]
+		cur.Added += a
+		cur.Removed += r
+		files[f] = cur
+	}
+}
+
 // DiffStat returns per-file added/removed lines (deduped) for committed work
 // in [start..end] plus current uncommitted diff. Files appearing in both
 // sources are merged (lines summed, file counted once).
 func DiffStat(repo, sinceISO, untilISO string) map[string]FileStat {
 	files := map[string]FileStat{}
-	merge := func(s string) {
-		for _, ln := range strings.Split(strings.TrimSpace(s), "\n") {
-			if ln == "" {
-				continue
-			}
-			parts := strings.Fields(ln)
-			if len(parts) < 3 {
-				continue
-			}
-			a, _ := strconv.Atoi(parts[0]) // "-" → 0 (binary file)
-			r, _ := strconv.Atoi(parts[1])
-			f := parts[2]
-			cur := files[f]
-			cur.Added += a
-			cur.Removed += r
-			files[f] = cur
-		}
-	}
 	if out, err := exec.Command("git", "-C", repo, "log",
 		"--since="+sinceISO, "--until="+untilISO,
 		"--pretty=tformat:", "--numstat").Output(); err == nil {
-		merge(string(out))
+		parseNumstat(string(out), files)
 	}
 	if out, err := exec.Command("git", "-C", repo, "diff", "--numstat").Output(); err == nil {
-		merge(string(out))
+		parseNumstat(string(out), files)
 	}
 	return files
 }

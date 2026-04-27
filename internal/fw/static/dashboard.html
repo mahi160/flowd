@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>flowd — dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#0a0e14;--bg2:#11161d;--card:#161c25;--line:#222a35;
+  --fg:#e6edf3;--mute:#8b95a6;--accent:#7c5cff;--accent2:#42d4b6;
+  --warn:#ffb454;--bad:#ff6e6e;--good:#5dd87b;
+  --grad:linear-gradient(135deg,#7c5cff 0%,#42d4b6 100%);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Inter",system-ui,sans-serif;font-feature-settings:"ss01","cv11"}
+body{background:radial-gradient(1200px 600px at 10% -10%,rgba(124,92,255,.18),transparent 60%),radial-gradient(900px 500px at 100% 0%,rgba(66,212,182,.14),transparent 60%),var(--bg);min-height:100vh}
+.wrap{max-width:1280px;margin:0 auto;padding:32px 28px 64px}
+header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
+.brand{display:flex;align-items:center;gap:14px}
+.logo{width:40px;height:40px;border-radius:11px;background:var(--grad);display:grid;place-items:center;font-weight:800;font-size:18px;color:#0a0e14;letter-spacing:-.5px;box-shadow:0 8px 30px -10px rgba(124,92,255,.6)}
+h1{font-size:22px;margin:0;letter-spacing:-.4px}
+.muted{color:var(--mute);font-size:13px}
+.tabs{display:flex;gap:6px;background:var(--card);padding:4px;border-radius:10px;border:1px solid var(--line)}
+.tab{padding:7px 14px;border-radius:7px;font-size:13px;color:var(--mute);cursor:default}
+.tab.on{background:var(--bg2);color:var(--fg)}
+.grid{display:grid;gap:18px}
+.kpis{grid-template-columns:repeat(4,1fr)}
+@media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;position:relative;overflow:hidden}
+.card.glow::before{content:"";position:absolute;inset:0;background:var(--grad);opacity:.06;pointer-events:none}
+.kpi .label{font-size:12px;color:var(--mute);text-transform:uppercase;letter-spacing:.7px;font-weight:600}
+.kpi .num{font-size:34px;font-weight:700;letter-spacing:-1px;margin-top:6px;line-height:1}
+.kpi .sub{font-size:12px;color:var(--mute);margin-top:6px}
+.kpi.accent .num{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.row{display:grid;gap:18px;margin-top:18px}
+.row.r2{grid-template-columns:1.4fr 1fr}
+.row.r3{grid-template-columns:1fr 1fr 1fr}
+@media(max-width:980px){.row.r2,.row.r3{grid-template-columns:1fr}}
+h2{font-size:14px;margin:0 0 14px;font-weight:600;color:var(--fg);letter-spacing:.2px}
+h2 .hint{font-weight:400;color:var(--mute);font-size:12px;margin-left:6px}
+.heatmap{display:grid;gap:3px}
+.heatmap .row-line{display:flex;align-items:center;gap:8px}
+.heatmap .lbl{font-size:11px;color:var(--mute);width:46px;text-align:right;font-variant-numeric:tabular-nums}
+.heatmap .cells{display:grid;grid-template-columns:repeat(24,1fr);gap:3px;flex:1}
+.heatmap.today .cells{grid-template-columns:repeat(48,1fr)}
+.heatmap .cell{aspect-ratio:1;border-radius:3px;background:#1a212c;transition:transform .1s}
+.heatmap .cell:hover{transform:scale(1.4);outline:1px solid var(--accent)}
+.scale{display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-top:10px;color:var(--mute);font-size:11px}
+.scale .sw{width:11px;height:11px;border-radius:3px}
+.timeline{display:flex;flex-direction:column;gap:8px;max-height:380px;overflow:auto;padding-right:6px}
+.timeline::-webkit-scrollbar{width:8px}
+.timeline::-webkit-scrollbar-thumb{background:#222b39;border-radius:4px}
+.tl-item{display:flex;gap:12px;padding:12px 14px;background:var(--bg2);border-radius:10px;border:1px solid transparent;transition:border-color .15s}
+.tl-item:hover{border-color:var(--line)}
+.tl-time{font-variant-numeric:tabular-nums;color:var(--mute);font-size:12px;min-width:96px;padding-top:2px}
+.tl-body{flex:1;min-width:0}
+.tl-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.repo{font-weight:600;color:var(--fg)}
+.branch{font-size:11px;color:var(--accent2);background:rgba(66,212,182,.1);padding:2px 7px;border-radius:99px}
+.tl-stats{margin-top:6px;font-size:12px;color:var(--mute)}
+.tl-ai{margin-top:8px;font-size:12.5px;color:var(--fg);background:rgba(124,92,255,.07);border-left:2px solid var(--accent);padding:7px 10px;border-radius:0 6px 6px 0;line-height:1.5;white-space:pre-wrap}
+.bar{height:6px;background:#1a212c;border-radius:3px;overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:var(--grad)}
+.lang-list{display:flex;flex-direction:column;gap:10px}
+.lang-row{display:flex;align-items:center;gap:10px;font-size:13px}
+.lang-row .name{flex:0 0 110px;color:var(--fg)}
+.lang-row .min{color:var(--mute);font-variant-numeric:tabular-nums;font-size:12px;width:60px;text-align:right}
+.lang-row .barwrap{flex:1;height:8px;background:#1a212c;border-radius:4px;overflow:hidden}
+.lang-row .barwrap i{display:block;height:100%;background:var(--grad)}
+.ai-card{background:linear-gradient(135deg,rgba(124,92,255,.08),rgba(66,212,182,.04));border:1px dashed #2c3242;border-radius:16px;padding:24px;display:flex;align-items:center;gap:18px;min-height:140px}
+.ai-icon{width:46px;height:46px;border-radius:12px;background:var(--grad);display:grid;place-items:center;font-size:22px;flex:0 0 46px}
+.ai-card .title{font-weight:600;font-size:14px;margin-bottom:4px}
+.ai-card .sub{color:var(--mute);font-size:13px;line-height:1.5}
+.empty{color:var(--mute);text-align:center;padding:40px;font-size:13px}
+canvas{max-height:260px}
+footer{margin-top:36px;color:var(--mute);font-size:12px;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="logo">fw</div>
+      <div>
+        <h1>flowd</h1>
+        <div class="muted" id="genTime"></div>
+      </div>
+    </div>
+    <div class="tabs"><div class="tab" id="tabT">Today</div><div class="tab" id="tabW">Week</div></div>
+  </header>
+
+  <div id="empty" class="card empty" style="display:none">No activity recorded yet for this period. Run <code>fw start</code> and check back.</div>
+
+  <div id="content">
+    <div class="grid kpis">
+      <div class="card kpi accent glow"><div class="label">Focus</div><div class="num" id="kFocus">—</div><div class="sub" id="kFocusSub"></div></div>
+      <div class="card kpi"><div class="label">Machine</div><div class="num" id="kMachine" style="font-size:22px">—</div><div class="sub" id="kOS"></div></div>
+      <div class="card kpi"><div class="label">Top repo</div><div class="num" id="kRepo" style="font-size:22px">—</div><div class="sub" id="kBranch"></div></div>
+      <div class="card kpi"><div class="label">Code</div><div class="num" id="kCode" style="font-size:22px">—</div><div class="sub" id="kCodeSub"></div></div>
+    </div>
+
+    <div class="row r2">
+      <div class="card">
+        <h2 id="hmTitle">Activity heatmap <span class="hint" id="hmHint"></span></h2>
+        <div class="heatmap" id="heatmap"></div>
+        <div class="scale">less <span class="sw" style="background:#1a212c"></span><span class="sw" style="background:#2b2151"></span><span class="sw" style="background:#4a3aaa"></span><span class="sw" style="background:#7c5cff"></span><span class="sw" style="background:#42d4b6"></span> more</div>
+      </div>
+      <div class="ai-card" id="aiCard">
+        <div class="ai-icon">✨</div>
+        <div style="flex:1">
+          <div class="title" id="aiTitle">AI insights</div>
+          <div class="sub" id="aiBody">Set <code>ai_enabled: true</code> and an <code>ai_command</code> in your config to see AI-generated insights here. Run <code>fw dashboard --ai-recap</code> for a period-wide aggregate.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row r3">
+      <div class="card"><h2>By project</h2><canvas id="chProject"></canvas></div>
+      <div class="card"><h2>By tool</h2><canvas id="chTool"></canvas></div>
+      <div class="card" id="machineCard"><h2 id="machineCardTitle">Languages <span class="hint">(weighted by lines touched)</span></h2><div id="langList" class="lang-list"></div><canvas id="chMachine" style="display:none"></canvas></div>
+    </div>
+
+    <div class="row r2">
+      <div class="card">
+        <h2>Timeline</h2>
+        <div class="timeline" id="timeline"></div>
+      </div>
+      <div class="card">
+        <h2>Summary</h2>
+        <div id="textSummary" style="font-size:13px;color:var(--mute);line-height:1.7"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>flowd — local activity tracker · self-hosted</footer>
+</div>
+
+<script>
+const DATA = __FLOWD_DATA__;
+function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+(function(){
+  document.getElementById('genTime').textContent = "Generated " + DATA.generated;
+
+  // AI card
+  if (DATA.ai_recap) {
+    document.getElementById('aiTitle').textContent = "AI recap — " + (DATA.period === 'week' ? 'this week' : 'today');
+    const body = document.getElementById('aiBody');
+    body.textContent = DATA.ai_recap;
+    body.style.color = "var(--fg)";
+    body.style.whiteSpace = "pre-wrap";
+  } else if (DATA.ai_per_block > 0) {
+    document.getElementById('aiTitle').textContent = "AI insights · " + DATA.ai_per_block + " block" + (DATA.ai_per_block===1?'':'s');
+    document.getElementById('aiBody').innerHTML = "Per-block AI summaries are inline in the timeline below. Run <code>fw dashboard --ai-recap</code> for an aggregate recap.";
+  }
+  if (DATA.period === "week") {
+    document.getElementById('tabW').classList.add('on');
+    document.getElementById('hmTitle').firstChild.textContent = "Activity heatmap ";
+    document.getElementById('hmHint').textContent = "(last 7 days × hour of day)";
+  } else {
+    document.getElementById('tabT').classList.add('on');
+    document.getElementById('hmHint').textContent = "(today · 30-min buckets)";
+  }
+
+  if (!DATA.total_blocks){
+    document.getElementById('empty').style.display='block';
+    document.getElementById('content').style.display='none';
+    return;
+  }
+
+  // KPIs
+  const h = Math.floor(DATA.total_focus_min/60), m = DATA.total_focus_min%60;
+  document.getElementById('kFocus').textContent = (h ? h+"h " : "") + m + "m";
+  document.getElementById('kFocusSub').textContent = DATA.total_blocks + " blocks · " + DATA.total_switches + " context switches";
+  document.getElementById('kMachine').textContent = DATA.machine || "—";
+  document.getElementById('kOS').textContent = DATA.os || "";
+  document.getElementById('kRepo').textContent = DATA.top_repo || "—";
+  document.getElementById('kBranch').textContent = DATA.top_branch ? "branch: " + DATA.top_branch : "";
+  document.getElementById('kCode').textContent = DATA.files_changed + " files";
+  document.getElementById('kCodeSub').textContent = "+" + DATA.lines_added + " −" + DATA.lines_removed;
+
+  // Heatmap
+  const hm = document.getElementById('heatmap');
+  const max = Math.max(1, ...DATA.heatmap.map(c=>c.minute));
+  const colorFor = v => {
+    if (!v) return "#1a212c";
+    const t = v/max;
+    if (t<.25) return "#2b2151";
+    if (t<.5)  return "#4a3aaa";
+    if (t<.75) return "#7c5cff";
+    return "#42d4b6";
+  };
+  if (DATA.period === "week") {
+    const byDay = {};
+    DATA.heatmap.forEach(c=>{(byDay[c.day]=byDay[c.day]||[]).push(c)});
+    Object.keys(byDay).forEach(day=>{
+      const row = document.createElement('div'); row.className='row-line';
+      const lbl = document.createElement('div'); lbl.className='lbl'; lbl.textContent=day;
+      const cells = document.createElement('div'); cells.className='cells';
+      byDay[day].sort((a,b)=>a.hour-b.hour).forEach(c=>{
+        const el = document.createElement('div'); el.className='cell';
+        el.style.background = colorFor(c.minute);
+        el.title = day + " " + String(c.hour).padStart(2,'0')+":00 · "+c.minute+"m";
+        cells.appendChild(el);
+      });
+      row.appendChild(lbl); row.appendChild(cells); hm.appendChild(row);
+    });
+  } else {
+    hm.classList.add('today');
+    const row = document.createElement('div'); row.className='row-line';
+    const lbl = document.createElement('div'); lbl.className='lbl'; lbl.textContent='Today';
+    const cells = document.createElement('div'); cells.className='cells';
+    DATA.heatmap.forEach(c=>{
+      const el = document.createElement('div'); el.className='cell';
+      el.style.background = colorFor(c.minute);
+      const hh=Math.floor(c.hour/2), mm=(c.hour%2)*30;
+      el.title = String(hh).padStart(2,'0')+":"+String(mm).padStart(2,'0')+" · "+c.minute+"m";
+      cells.appendChild(el);
+    });
+    row.appendChild(lbl); row.appendChild(cells); hm.appendChild(row);
+  }
+
+  // Charts
+  Chart.defaults.color = "#8b95a6";
+  Chart.defaults.font.family = "-apple-system,BlinkMacSystemFont,Inter,system-ui,sans-serif";
+  Chart.defaults.borderColor = "#222a35";
+  const palette = ["#7c5cff","#42d4b6","#ffb454","#ff6e6e","#5dd87b","#5b9dff","#e667d4","#a884ff"];
+
+  function donut(id, data){
+    const labels = Object.keys(data).filter(k=>data[k]>0).sort((a,b)=>data[b]-data[a]);
+    const vals = labels.map(k=>data[k]);
+    if (!labels.length){
+      document.getElementById(id).parentElement.querySelector('canvas').replaceWith(emptyMsg());
+      return;
+    }
+    new Chart(document.getElementById(id),{
+      type:'doughnut',
+      data:{labels,datasets:[{data:vals,backgroundColor:labels.map((_,i)=>palette[i%palette.length]),borderWidth:0}]},
+      options:{
+        plugins:{legend:{position:'bottom',labels:{boxWidth:10,padding:10,font:{size:11}}},
+        tooltip:{callbacks:{label:c=>c.label+': '+c.parsed+'m'}}},
+        cutout:'62%'
+      }
+    });
+  }
+  function emptyMsg(){const d=document.createElement('div');d.className='empty';d.textContent='No data';return d}
+
+  donut('chProject', DATA.by_project);
+  donut('chTool',    DATA.by_tool);
+
+  // show machine chart only when >1 machine contributed
+  const machines = Object.keys(DATA.by_machine||{}).filter(k=>DATA.by_machine[k]>0);
+  if (machines.length > 1) {
+    document.getElementById('langList').style.display = 'none';
+    const mc = document.getElementById('chMachine');
+    mc.style.display = 'block';
+    document.getElementById('machineCardTitle').innerHTML = 'By machine';
+    donut('chMachine', DATA.by_machine);
+  }
+
+  // Languages list
+  const ll = document.getElementById('langList');
+  const langs = Object.entries(DATA.languages).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if (!langs.length){ ll.innerHTML='<div class="empty">No languages detected.<br><span class="muted">Languages are inferred from files changed in git during the window.</span></div>'; }
+  const lmax = Math.max(1, ...langs.map(l=>l[1]));
+  langs.forEach(([k,v],i)=>{
+    const r=document.createElement('div'); r.className='lang-row';
+    r.innerHTML = '<div class="name">'+k+'</div><div class="barwrap"><i style="width:'+(100*v/lmax)+'%;background:'+palette[i%palette.length]+'"></i></div><div class="min">'+v+'m</div>';
+    ll.appendChild(r);
+  });
+
+  // Timeline
+  const tl = document.getElementById('timeline');
+  const tlMax = Math.max(1, ...DATA.timeline.map(b=>b.focus));
+  if (!DATA.timeline.length){ tl.innerHTML='<div class="empty">No blocks.</div>'; }
+  DATA.timeline.slice().reverse().forEach(b=>{
+    const el=document.createElement('div'); el.className='tl-item';
+    el.innerHTML = '<div class="tl-time">'+b.start+' → '+b.end+'</div>'+
+      '<div class="tl-body">'+
+      '<div class="tl-head"><span class="repo">'+(b.repo||"—")+'</span>'+
+      (b.branch?'<span class="branch">'+b.branch+'</span>':'')+
+      '</div>'+
+      '<div class="tl-stats">'+b.focus+'m focus · '+b.switches+' context switches</div>'+
+      '<div class="bar"><i style="width:'+(100*b.focus/tlMax)+'%"></i></div>'+
+      (b.ai?'<div class="tl-ai">✨ '+escapeHTML(b.ai)+'</div>':'')+
+      '</div>';
+    tl.appendChild(el);
+  });
+
+  // Text summary
+  const top = arr => arr.slice(0,3).map(([k,v])=>k+' '+v+'m').join(' · ') || '—';
+  const ts = document.getElementById('textSummary');
+  const projTop = Object.entries(DATA.by_project).sort((a,b)=>b[1]-a[1]);
+  const toolTop = Object.entries(DATA.by_tool).sort((a,b)=>b[1]-a[1]);
+  ts.innerHTML =
+    '<p><strong style="color:var(--fg)">Focus:</strong> '+DATA.total_focus_min+' min across '+DATA.total_blocks+' blocks.</p>'+
+    '<p><strong style="color:var(--fg)">Projects:</strong> '+top(projTop)+'</p>'+
+    '<p><strong style="color:var(--fg)">Tools:</strong> '+top(toolTop)+'</p>'+
+    '<p><strong style="color:var(--fg)">Code:</strong> '+DATA.files_changed+' files (+'+DATA.lines_added+' −'+DATA.lines_removed+').</p>';
+})();
+</script>
+</body>
+</html>

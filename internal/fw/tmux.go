@@ -56,6 +56,18 @@ func AttachedSession() (string, int) {
 	return bestSession, bestIdle
 }
 
+// parsePane parses a single line of tmux display-message output.
+func parsePane(raw string) (*Pane, error) {
+	parts := strings.SplitN(strings.TrimSpace(raw), "|", 6)
+	if len(parts) < 6 {
+		return nil, fmt.Errorf("bad tmux output: %q", raw)
+	}
+	return &Pane{
+		Session: parts[0], Window: parts[1], Pane: parts[2],
+		PaneID: parts[3], Command: parts[4], Cwd: parts[5],
+	}, nil
+}
+
 // ActivePane returns the active pane of the given session.
 func ActivePane(session string) (*Pane, error) {
 	out, err := exec.Command("tmux", "display-message", "-p", "-t", session,
@@ -64,13 +76,6 @@ func ActivePane(session string) (*Pane, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tmux display-message: %w", err)
 	}
-	parts := strings.SplitN(strings.TrimSpace(string(out)), "|", 6)
-	if len(parts) < 6 {
-		return nil, fmt.Errorf("bad tmux output: %q", out)
-	}
-	return &Pane{
-		Session: parts[0], Window: parts[1], Pane: parts[2],
-		PaneID: parts[3], Command: parts[4], Cwd: parts[5],
-	}, nil
+	return parsePane(string(out))
 }
 

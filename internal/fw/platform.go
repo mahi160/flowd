@@ -4,31 +4,38 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 type Platform struct {
 	Hostname string
 	OS       string
 	Arch     string
-	Machine  string // config override or hostname
+	Machine  string
 }
 
-var platform *Platform
+var (
+	platform     *Platform
+	platformOnce sync.Once
+	platformName string
+)
 
 func initPlatform(machineName string) {
-	host, _ := os.Hostname()
-	// strip .local / domain suffix for cleanliness
-	short := strings.SplitN(host, ".", 2)[0]
-	name := machineName
-	if name == "" {
-		name = short
-	}
-	platform = &Platform{
-		Hostname: short,
-		OS:       runtime.GOOS,
-		Arch:     runtime.GOARCH,
-		Machine:  name,
-	}
+	platformName = machineName
+	platformOnce.Do(func() {
+		host, _ := os.Hostname()
+		short := strings.SplitN(host, ".", 2)[0]
+		name := platformName
+		if name == "" {
+			name = short
+		}
+		platform = &Platform{
+			Hostname: short,
+			OS:       runtime.GOOS,
+			Arch:     runtime.GOARCH,
+			Machine:  name,
+		}
+	})
 }
 
 func GetPlatform() *Platform {
