@@ -18,6 +18,7 @@ type Config struct {
 	GitRemote          string   `yaml:"git_remote"`
 	Branch             string   `yaml:"branch"`
 	AICommand          string   `yaml:"ai_command"`
+	WatchDirs          []string `yaml:"watch_dirs"`
 	ExcludePaths       []string `yaml:"exclude_paths"`
 	DBPath             string   `yaml:"db_path"`
 }
@@ -33,6 +34,7 @@ func Defaults() *Config {
 		RepoPath:           filepath.Join(home, "flowd-private"),
 		Branch:             "main",
 		DBPath:             filepath.Join(home, ".local", "share", "flowd", "flowd.db"),
+		WatchDirs:          []string{home},
 	}
 }
 
@@ -54,6 +56,9 @@ func Load(path string) (*Config, error) {
 	// expand ~ in paths
 	cfg.RepoPath = expandHome(cfg.RepoPath)
 	cfg.DBPath = expandHome(cfg.DBPath)
+	for i, d := range cfg.WatchDirs {
+		cfg.WatchDirs[i] = expandHome(d)
+	}
 
 	return cfg, nil
 }

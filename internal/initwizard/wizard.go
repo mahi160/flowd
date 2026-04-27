@@ -78,6 +78,14 @@ func Run() (*config.Config, error) {
 	}
 
 	fmt.Println()
+	fmt.Println("  ── Project directories ───────────────────────────")
+	fmt.Println("  Flowd tracks panes whose cwd is under these paths.")
+	fmt.Println("  Comma-separated. Example: ~/code, ~/work, ~/personal")
+	defaultDirs := strings.Join(cfg.WatchDirs, ", ")
+	rawDirs := ask(r, "watch dirs", defaultDirs)
+	cfg.WatchDirs = splitDirs(rawDirs)
+
+	fmt.Println()
 	fmt.Println("  ── AI summaries ──────────────────────────────────")
 	fmt.Println("  Leave blank to skip. Examples: claude prompt / gemini chat")
 	cfg.AICommand = ask(r, "AI command", cfg.AICommand)
@@ -125,6 +133,17 @@ func SetupRepo(repoPath, remote, branch string) error {
 	}
 
 	return nil
+}
+
+func splitDirs(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		d := strings.TrimSpace(part)
+		if d != "" {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 func gitIn(dir string, args ...string) (string, error) {
