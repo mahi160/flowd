@@ -18,10 +18,10 @@
 
 ## Phase 3 - Intelligence
 
-- [ ] block generator (30 min)
-- [ ] summary templates (non-AI)
-- [ ] provider interface
-- [ ] AI summary adapter
+- [x] block generator (30 min)
+- [x] summary templates (non-AI)
+- [x] provider interface
+- [x] AI summary adapter
 
 ## Phase 4 - Sync
 
