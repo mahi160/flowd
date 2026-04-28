@@ -32,6 +32,13 @@ func cmdStart() *cobra.Command {
 			}
 			defer d.Close()
 
+			if data, err := os.ReadFile(pidFile); err == nil {
+				if p, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+					if proc, err := os.FindProcess(p); err == nil && proc.Signal(syscall.Signal(0)) == nil {
+						return fmt.Errorf("flowd already running (pid %d); run `fw stop` first", p)
+					}
+				}
+			}
 			if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
 				slog.Warn("write pid", "err", err)
 			}
