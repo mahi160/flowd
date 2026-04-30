@@ -82,27 +82,21 @@ func cmdUpdate() *cobra.Command {
 				return fmt.Errorf("go build: %w", err)
 			}
 
-			// Replace the binary — try direct rename first, then fall back to sudo.
+			// Replace the binary — same as `cp newBin exe`.
+			// Falls back to sudo only if the user doesn't own the file at all.
 			if err := replaceBinary(newBin, exe); err != nil {
-				// Stage the built binary in a temp location.
 				fallback := filepath.Join(os.TempDir(), "fw-new")
-				if renErr := os.Rename(newBin, fallback); renErr != nil {
-					// Cross-device rename (tmpDir on different fs) — copy instead.
-					if cpErr := copyFile(newBin, fallback, 0755); cpErr != nil {
-						return fmt.Errorf("could not stage binary: %w", cpErr)
-					}
-				}
-				fmt.Printf("\n%s is owned by root — running sudo to replace it\n", exe)
-				sudo := exec.CommandContext(ctx, "sudo", "mv", fallback, exe)
+				_ = copyFile(newBin, fallback, 0755)
+				fmt.Printf("\n%s is not writable — running sudo cp\n", exe)
+				sudo := exec.CommandContext(ctx, "sudo", "cp", fallback, exe)
 				sudo.Stdin = os.Stdin
 				sudo.Stdout = os.Stdout
 				sudo.Stderr = os.Stderr
+				defer os.Remove(fallback)
 				if sudoErr := sudo.Run(); sudoErr != nil {
-					os.Remove(fallback)
-					fmt.Printf("sudo failed: %v\nrun manually:\n  sudo mv %s %s\n", sudoErr, fallback, exe)
+					fmt.Printf("sudo failed: %v\nrun manually:\n  sudo cp %s %s\n", sudoErr, fallback, exe)
 					return nil
 				}
-				os.Remove(fallback) // clean up if sudo cp was used instead of mv
 			}
 
 			fmt.Printf("\nupdated to %s ✓\n", latest)
@@ -160,30 +154,11 @@ func copyFile(src, dst string, perm os.FileMode) error {
 	return out.Close()
 }
 
-// replaceBinary atomically replaces dst with src on the same filesystem.
+// replaceBinary overwrites dst with src, the same way `cp src dst` does.
+// This only requires write permission on dst itself, not on the directory
+// — which is why `make install` (cp) works when the parent dir is root-owned.
 func replaceBinary(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	// Write to a sibling temp file, then rename (atomic swap).
-	tmp := dst + ".new"
-	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(tmp)
-		return err
-	}
-	if err := out.Close(); err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, dst)
+	return copyFile(src, dst, 0755)
 }
 
 // runGitCmd runs git with the given args, optionally in a working directory.
