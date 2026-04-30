@@ -30,12 +30,12 @@ func cmdInit() *cobra.Command {
 			}
 			fmt.Printf("\n  config → %s\n", cfgPath)
 
-			d, err := OpenDB(cfg.DBPath)
+			d, err := OpenDB(cfg.DBPath())
 			if err != nil {
 				return err
 			}
 			d.Close()
-			fmt.Printf("  db ready → %s\n", cfg.DBPath)
+			fmt.Printf("  db ready → %s\n", cfg.DBPath())
 
 			if err := SetupRepo(cfg.RepoPath, cfg.GitRemote, cfg.Branch); err != nil {
 				fmt.Printf("  warn: repo setup: %v\n", err)
@@ -57,43 +57,46 @@ func cmdSummary() *cobra.Command {
 	var save bool
 	c := &cobra.Command{
 		Use:   "summary",
-		Short: "Build and print the current block (use --save to persist it)",
+		Short: "Print the current in-progress block (since last completed block)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := LoadConfig(cfgPath)
 			if err != nil {
 				return err
 			}
-			d, err := OpenDB(cfg.DBPath)
+			d, err := OpenDB(cfg.DBPath())
 			if err != nil {
 				return err
 			}
 			defer d.Close()
-			now := time.Now().UTC()
-			iv := time.Duration(cfg.SummaryIntervalMin) * time.Minute
-			u := now.UnixNano()
-			var start, end time.Time
-			if save {
-				end = now
-				start = time.Unix(0, u-(u%iv.Nanoseconds())).UTC()
-				if start.Equal(end) || start.After(end) {
-					start = end.Add(-iv)
+
+			// Determine blockStart: resume from persisted state if available.
+			blockStart := time.Now().Add(-time.Duration(cfg.FocusBlockMin) * time.Minute)
+			if v := d.GetState(stateBlockStart); v != "" {
+				if t, err := time.Parse(time.RFC3339, v); err == nil {
+					blockStart = t
 				}
-			} else {
-				end = time.Unix(0, u-(u%iv.Nanoseconds())).UTC()
-				start = end.Add(-iv)
 			}
-			b, err := BuildBlock(cmd.Context(), d, start, end, cfg.PollIntervalSec, save)
+			end := time.Now().UTC()
+
+			b, err := BuildBlock(cmd.Context(), d, blockStart, end, cfg.PollIntervalSec, save)
 			if err != nil {
 				return err
 			}
 			if save {
+				// Force-close the block: persist the new blockStart.
+				if err := d.SetState(stateBlockStart, end.UTC().Format(time.RFC3339)); err != nil {
+					return fmt.Errorf("persist block start: %w", err)
+				}
+				if err := WriteJournal(cfg, b); err != nil {
+					return fmt.Errorf("journal write: %w", err)
+				}
 				fmt.Println("block saved.")
 			}
 			fmt.Println(b.Summary)
 			return nil
 		},
 	}
-	c.Flags().BoolVar(&save, "save", false, "persist the block to the DB (shows in dashboard)")
+	c.Flags().BoolVar(&save, "save", false, "force-close the current block and write it to the journal")
 	return c
 }
 
@@ -106,7 +109,7 @@ func cmdReport() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			d, err := OpenDB(cfg.DBPath)
+			d, err := OpenDB(cfg.DBPath())
 			if err != nil {
 				return err
 			}
@@ -137,7 +140,7 @@ func cmdDashboard() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			d, err := OpenDB(cfg.DBPath)
+			d, err := OpenDB(cfg.DBPath())
 			if err != nil {
 				return err
 			}

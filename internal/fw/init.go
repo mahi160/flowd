@@ -40,45 +40,68 @@ func askInt(r *bufio.Reader, prompt string, def int) int {
 	return n
 }
 
-// RunInitWizard walks the user through config questions.
+// gitConfigGlobal reads a single git global config value.
+func gitConfigGlobal(key string) string {
+	out, err := exec.Command("git", "config", "--global", key).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// RunInitWizard walks the user through the minimal setup questions.
+// Everything except the git repo has a sensible default — just press Enter.
 func RunInitWizard() (*Config, error) {
 	cfg := DefaultConfig()
 	r := bufio.NewReader(os.Stdin)
 
 	fmt.Println()
 	fmt.Println("  flowd init — Press Enter to accept [default].")
-	fmt.Println()
 
-	fmt.Println("  ── Journal repo ──")
-	fmt.Println("  Private repo where flowd stores summaries AND the SQLite DB.")
-	fmt.Println("  Provide a remote URL to keep it synced; leave blank for local-only.")
-	cfg.GitRemote = ask(r, "private repo remote URL (blank = local only)", cfg.GitRemote)
-	cfg.RepoPath = ask(r, "local repo path", cfg.RepoPath)
-	cfg.Branch = ask(r, "branch", cfg.Branch)
-	cfg.DBPath = filepath.Join(expandHome(cfg.RepoPath), "flowd.db")
-
+	// ── Git identity ─────────────────────────────────────────────────
+	gitName := gitConfigGlobal("user.name")
+	gitEmail := gitConfigGlobal("user.email")
 	fmt.Println()
-	fmt.Println("  ── Polling ──")
-	cfg.PollIntervalSec = askInt(r, "tmux poll interval (seconds)", cfg.PollIntervalSec)
-	cfg.SummaryIntervalMin = askInt(r, "summary block interval (minutes)", cfg.SummaryIntervalMin)
-	cfg.MinFocusMin = askInt(r, "min focused minutes per block to push", cfg.MinFocusMin)
-	cfg.IdleThresholdSec = askInt(r, "idle threshold (sec) — pause tracking after no input", cfg.IdleThresholdSec)
-
+	fmt.Println("  ── Git identity ──")
+	fmt.Println("  Each coding block creates a git commit. For it to appear as a")
+	fmt.Println("  green square on your GitHub profile, the email below must match")
+	fmt.Println("  a verified address on your GitHub account.")
 	fmt.Println()
-	fmt.Println("  ── AI summaries (optional) ──")
-	fmt.Println("  Pipe each block's summary through any CLI AI tool (claude, codex,")
-	fmt.Println("  pi, opencode, llm, etc). The tool must read stdin and print to stdout.")
-	cfg.AIEnabled = askBool(r, "enable AI summaries", cfg.AIEnabled)
-	if cfg.AIEnabled {
-		fmt.Println("  Examples: 'claude --print', 'codex exec', 'llm -m claude-3-5-sonnet'")
-		cfg.AICommand = ask(r, "AI command", cfg.AICommand)
-		cfg.AIPrompt = ask(r, "AI prompt", cfg.AIPrompt)
+	if gitName == "" && gitEmail == "" {
+		fmt.Println("  ⚠  No global git identity found. Set one with:")
+		fmt.Println("       git config --global user.name \"Your Name\"")
+		fmt.Println("       git config --global user.email \"you@example.com\"")
+		fmt.Println()
+	} else {
+		fmt.Printf("  name:  %s\n", gitName)
+		fmt.Printf("  email: %s\n", gitEmail)
+		fmt.Println()
+		if !askBool(r, "Is this email verified on your GitHub account?", true) {
+			fmt.Println()
+			fmt.Println("  Update it with:")
+			fmt.Println("    git config --global user.email \"you@example.com\"")
+			fmt.Println("  Then re-run fw init.")
+			fmt.Println()
+			return nil, fmt.Errorf("aborted: fix git identity first")
+		}
 	}
 
+	// ── Journal repo ───────────────────────────────────────────────
 	fmt.Println()
-	fmt.Println("  ── Watch dirs ──")
-	fmt.Println("  Comma-separated. Only panes whose cwd is under these paths are tracked.")
-	cfg.WatchDirs = splitCSV(ask(r, "watch dirs", strings.Join(cfg.WatchDirs, ", ")))
+	fmt.Println("  ── Journal repo ──")
+	fmt.Println("  Private git repo where flowd stores your session logs.")
+	fmt.Println("  Each commit = one focus block = one green square on GitHub.")
+	fmt.Println("  Add a remote to sync; leave blank for local only.")
+	fmt.Println()
+	cfg.GitRemote = ask(r, "git remote URL (blank = local only)", cfg.GitRemote)
+	cfg.RepoPath = ask(r, "local repo path", cfg.RepoPath)
+
+	// ── Machine name ───────────────────────────────────────────────
+	fmt.Println()
+	fmt.Println("  ── Machine name ──")
+	fmt.Printf("  Used as the folder inside the repo: %s/<machine>/2026-04.md\n", cfg.RepoPath)
+	fmt.Println()
+	cfg.MachineName = ask(r, "machine name", cfg.MachineName)
 
 	return cfg, nil
 }

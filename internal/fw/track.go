@@ -9,10 +9,33 @@ import (
 )
 
 const (
-	EvActive         = "pane_active"
-	EvCwdChange      = "cwd_change"
-	EvSessionChange  = "session_change" // project/context switch
+	EvActive        = "pane_active"
+	EvCwdChange     = "cwd_change"
+	EvSessionChange = "session_change" // project/context switch
 )
+
+// classifyCommand maps a process name to a tool category used for
+// language inference. The raw command name is stored in ByTool;
+// the category is an internal grouping only.
+func classifyCommand(cmd string) string {
+	switch cmd {
+	case "nvim", "vim", "vi", "nano", "emacs", "hx", "micro", "code", "subl", "gedit", "kate":
+		return "editor"
+	case "claude", "pi", "aider", "codex", "opencode", "llm", "sgpt", "tgpt", "gemini", "copilot":
+		return "ai"
+	case "git", "lazygit", "tig", "gh", "gitu":
+		return "git"
+	case "zsh", "bash", "fish", "sh", "dash", "nu", "elvish":
+		return "shell"
+	case "node", "bun", "deno", "python", "python3", "go", "cargo", "ruby", "java", "php", "elixir", "erl", "iex", "ghci", "julia", "swift", "dotnet", "lua":
+		return "runtime"
+	case "docker", "docker-compose", "kubectl", "k9s", "podman", "helm":
+		return "docker"
+	case "psql", "mysql", "sqlite3", "redis-cli", "mongosh", "pgcli", "mycli":
+		return "db"
+	}
+	return "other"
+}
 
 type PaneMeta struct {
 	Session  string `json:"session"`
@@ -105,7 +128,7 @@ func (t *Tracker) poll() {
 	}
 
 	repo := RepoName(p.Cwd)
-	cat := p.Window
+	cat := classifyCommand(p.Command)
 	pl := GetPlatform()
 	meta, _ := json.Marshal(PaneMeta{
 		Session: p.Session, Window: p.Window, Pane: p.Pane,

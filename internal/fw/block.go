@@ -84,7 +84,11 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 			slog.Warn("unmarshal event meta", "err", err)
 			continue
 		}
-		b.ByTool[m.Category] += secPerTick
+		cmd := m.Command
+		if cmd == "" {
+			cmd = m.Category // fallback for legacy events
+		}
+		b.ByTool[cmd] += secPerTick
 		if m.Machine != "" {
 			b.ByMachine[m.Machine] += secPerTick
 		}

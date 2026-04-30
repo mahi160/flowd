@@ -11,13 +11,22 @@ import (
 	"time"
 )
 
-// WriteJournal appends a block summary to the monthly markdown log.
-func WriteJournal(repoPath string, b *Block) error {
-	if err := os.MkdirAll(repoPath, 0750); err != nil {
+// machineDir returns the machine-specific subfolder inside the journal repo.
+// Structure: <repo>/<machine>/
+func machineDir(cfg *Config) string {
+	return filepath.Join(expandHome(cfg.RepoPath), cfg.MachineName)
+}
+
+// WriteJournal appends a block summary to the monthly markdown log at
+// <repo>/<machine>/YYYY-MM.md and regenerates the repo README.
+func WriteJournal(cfg *Config, b *Block) error {
+	dir := machineDir(cfg)
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		return err
 	}
+
 	local := b.StartTS.Local()
-	logFile := filepath.Join(repoPath, local.Format("2006-01")+".md")
+	logFile := filepath.Join(dir, local.Format("2006-01")+".md")
 
 	existing, err := os.ReadFile(logFile)
 	if err != nil && !os.IsNotExist(err) {
@@ -42,11 +51,78 @@ func WriteJournal(repoPath string, b *Block) error {
 		sb.WriteString("\n")
 	}
 	sb.WriteString("\n")
-	return os.WriteFile(logFile, []byte(sb.String()), 0640)
+	if err := os.WriteFile(logFile, []byte(sb.String()), 0640); err != nil {
+		return err
+	}
+
+	// Regenerate README — best-effort, don't fail the block write.
+	if err := WriteReadme(cfg); err != nil {
+		slog.Warn("readme update", "err", err)
+	}
+	return nil
 }
 
-// PushJournal commits and pushes the journal repo with retry.
-func PushJournal(ctx context.Context, repoPath, branch string) error {
+// WriteReadme regenerates the README.md at the repo root with current-month stats.
+func WriteReadme(cfg *Config) error {
+	repoPath := expandHome(cfg.RepoPath)
+	dir := machineDir(cfg)
+
+	now := time.Now().Local()
+	monthFile := filepath.Join(dir, now.Format("2006-01")+".md")
+
+	// Count blocks this month from the monthly markdown (lightweight — no DB needed).
+	// We parse the existing log file for focus lines to get stats.
+	// Simpler: just show file existence + line counts as a proxy.
+	// Actually, we'll use the DB for accurate stats.
+	// For now: count "## " headings in the month file as block count.
+	content, _ := os.ReadFile(monthFile)
+	blocks := strings.Count(string(content), "\n## ")
+	// count days (### headings)
+	days := strings.Count(string(content), "\n### ")
+
+	// Extract total focus minutes from block summaries.
+	focusMin := 0
+	for _, line := range strings.Split(string(content), "\n") {
+		var f int
+		if _, err := fmt.Sscanf(line, "**Focus:** %d min", &f); err == nil {
+			focusMin += f
+		}
+	}
+	focusH := focusMin / 60
+	focusM := focusMin % 60
+
+	// Top command — scan ByTool lines.
+	cmdCounts := map[string]int{}
+	for _, line := range strings.Split(string(content), "\n") {
+		line = strings.TrimPrefix(line, "**Commands:**")
+		line = strings.TrimPrefix(line, "**Tools:**")
+		// lines look like: nvim 45min · claude 20min
+		for _, part := range strings.Split(line, "·") {
+			part = strings.TrimSpace(part)
+			var name string
+			var mins int
+			if _, err := fmt.Sscanf(part, "%s %dmin", &name, &mins); err == nil {
+				cmdCounts[name] += mins
+			}
+		}
+	}
+	topCmd := topKey(cmdCounts)
+
+	var readme strings.Builder
+	fmt.Fprintf(&readme, "# coding journal\n\n")
+	fmt.Fprintf(&readme, "**%s:** %dh %dm across %d days · %d blocks\n",
+		now.Format("January 2006"), focusH, focusM, days, blocks)
+	if topCmd != "" {
+		fmt.Fprintf(&readme, "**top command:** %s\n", topCmd)
+	}
+	fmt.Fprintf(&readme, "\n*Updated automatically by [flowd](https://github.com/mahi160/flowd).*\n")
+
+	return os.WriteFile(filepath.Join(repoPath, "README.md"), []byte(readme.String()), 0640)
+}
+
+// CommitJournal stages and commits all changes in the journal repo.
+// Called after every block write; the push is deferred to startup / 10 pm.
+func CommitJournal(ctx context.Context, repoPath, branch string) error {
 	if _, err := os.Stat(filepath.Join(repoPath, ".git")); os.IsNotExist(err) {
 		if err := git(ctx, repoPath, "init", "-b", branch); err != nil {
 			return err
@@ -56,7 +132,16 @@ func PushJournal(ctx context.Context, repoPath, branch string) error {
 		return err
 	}
 	msg := "flowd: " + time.Now().UTC().Format("2006-01-02T15:04Z")
-	_ = git(ctx, repoPath, "commit", "-m", msg)
+	_ = git(ctx, repoPath, "commit", "-m", msg) // no-op if nothing to commit
+	return nil
+}
+
+// PushJournal commits any pending changes and pushes to the remote with retry.
+// Called on daemon startup and once per day at 10 pm.
+func PushJournal(ctx context.Context, repoPath, branch string) error {
+	if err := CommitJournal(ctx, repoPath, branch); err != nil {
+		return err
+	}
 	for i := range 3 {
 		if err := git(ctx, repoPath, "push", "origin", branch); err == nil {
 			slog.Info("journal pushed")

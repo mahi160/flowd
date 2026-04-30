@@ -10,6 +10,11 @@ import (
 )
 
 const schema = `
+CREATE TABLE IF NOT EXISTS state (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS events (
   id    INTEGER PRIMARY KEY AUTOINCREMENT,
   ts    DATETIME NOT NULL,
@@ -36,6 +41,20 @@ CREATE INDEX IF NOT EXISTS idx_blocks_start ON blocks(start_ts);
 `
 
 type DB struct{ *sql.DB }
+
+// GetState reads a value from the key-value state table.
+// Returns "" if the key does not exist.
+func (d *DB) GetState(key string) string {
+	var v string
+	d.QueryRow(`SELECT value FROM state WHERE key=?`, key).Scan(&v)
+	return v
+}
+
+// SetState upserts a value in the key-value state table.
+func (d *DB) SetState(key, value string) error {
+	_, err := d.Exec(`INSERT INTO state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value`, key, value)
+	return err
+}
 
 func OpenDB(path string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
