@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>flowd — dashboard</title>
+    <script>
+      window.__FLOWD_DATA__ = __FLOWD_PAYLOAD_JSON__;
+    </script>
+    <script>
+      (() => {
+        try {
+          const saved = localStorage.getItem("fw-theme") || "system";
+          const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+          document.documentElement.dataset.theme = saved === "system" ? (dark ? "dark" : "light") : saved;
+        } catch {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

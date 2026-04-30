@@ -149,6 +149,9 @@ func cmdDashboard() *cobra.Command {
 			if len(args) > 0 {
 				period = args[0]
 			}
+			if period != "today" && period != "week" {
+				return fmt.Errorf("invalid period %q (want today or week)", period)
+			}
 			start, end := PeriodRange(period, time.Now())
 			blocks, err := LoadBlocks(cmd.Context(), d, start, end)
 			if err != nil {

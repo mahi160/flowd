@@ -34,7 +34,6 @@ type dashPayload struct {
 	TopBranch     string         `json:"top_branch"`
 	AIRecap       string         `json:"ai_recap"`
 	AIPerBlock    int            `json:"ai_per_block"`
-	ByMachine     map[string]int `json:"by_machine"`
 	Machine       string         `json:"machine"`
 	OS            string         `json:"os"`
 }
@@ -52,7 +51,6 @@ type tlBlock struct {
 	Branch   string `json:"branch"`
 	Focus    int    `json:"focus"`
 	Switches int    `json:"switches"`
-	Summary  string `json:"summary"`
 	AI       string `json:"ai,omitempty"`
 }
 
@@ -64,7 +62,6 @@ func buildDashPayload(period string, blocks []Block) dashPayload {
 		ByProject: map[string]int{},
 		ByTool:    map[string]int{},
 		Languages: map[string]int{},
-		ByMachine: map[string]int{},
 		Machine:   pl.Machine,
 		OS:        pl.OS,
 	}
@@ -98,14 +95,10 @@ func buildDashPayload(period string, blocks []Block) dashPayload {
 			Branch:   b.Branch,
 			Focus:    b.FocusedMin,
 			Switches: b.Switches,
-			Summary:  b.Summary,
 			AI:       b.AISummary,
 		})
 		if b.AISummary != "" {
 			p.AIPerBlock++
-		}
-		for k, v := range b.ByMachine {
-			p.ByMachine[k] += v
 		}
 	}
 	p.TotalBlocks = len(blocks)
@@ -190,32 +183,22 @@ func RenderDashboard(blocks []Block, period, aiRecap, outPath string) error {
 		return err
 	}
 
-	// Read HTML shell.
+	// Read built dashboard shell. The source lives in /dashboard and Vite emits
+	// this single-file HTML artifact into internal/fw/static/dashboard.html.
 	tmpl, err := staticFiles.ReadFile("static/dashboard.html")
 	if err != nil {
 		return err
 	}
-	html := strings.Replace(string(tmpl), "__FLOWD_DATA__", string(js), 1)
+	if !strings.Contains(string(tmpl), "__FLOWD_PAYLOAD_JSON__") {
+		return fmt.Errorf("dashboard template missing __FLOWD_PAYLOAD_JSON__ placeholder")
+	}
+	html := strings.Replace(string(tmpl), "__FLOWD_PAYLOAD_JSON__", string(js), 1)
 
 	outDir := filepath.Dir(outPath)
-	if err := os.MkdirAll(outDir, 0750); err != nil {
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
 		return err
 	}
-	if err := os.WriteFile(outPath, []byte(html), 0644); err != nil {
-		return err
-	}
-	// CSS files are loaded via <link> which is not subject to the same
-	// file:// CORS restriction — write them alongside the HTML.
-	for _, name := range []string{"base.css", "theme.css"} {
-		css, err := staticFiles.ReadFile("static/" + name)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(filepath.Join(outDir, name), css, 0644); err != nil {
-			return err
-		}
-	}
-	return nil
+	return os.WriteFile(outPath, []byte(html), 0o644)
 }
 
 // OpenInBrowser opens a path/URL in the user's default browser.

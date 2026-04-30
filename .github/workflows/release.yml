@@ -1,0 +1,97 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[skip release]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Build dashboard artifact
+        run: make dashboard
+
+      - name: Commit dashboard artifact if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git diff --quiet -- internal/fw/static/dashboard.html; then
+            git add internal/fw/static/dashboard.html
+            git commit -m "build: update dashboard artifact [skip ci]"
+            git push origin HEAD:main
+          fi
+
+      - name: Test
+        run: go test ./...
+
+      - name: Compute next version
+        id: version
+        shell: bash
+        run: |
+          current=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -1)
+          if [[ -z "$current" ]]; then
+            echo "No semver tag found" >&2
+            exit 1
+          fi
+
+          version="${current#v}"
+          IFS=. read -r major minor patch <<< "$version"
+
+          msg='${{ github.event.head_commit.message }}'
+          if [[ "$msg" == *"[release:major]"* ]]; then
+            major=$((major + 1)); minor=0; patch=0
+          elif [[ "$msg" == *"[release:minor]"* ]]; then
+            minor=$((minor + 1)); patch=0
+          else
+            patch=$((patch + 1))
+          fi
+
+          next="v${major}.${minor}.${patch}"
+          if git rev-parse "$next" >/dev/null 2>&1; then
+            echo "Tag $next already exists" >&2
+            exit 1
+          fi
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "version=${next#v}" >> "$GITHUB_OUTPUT"
+          echo "Current: $current"
+          echo "Next:    $next"
+
+      - name: Build release binary smoke test
+        run: go build -ldflags "-X github.com/mahi160/flowd/internal/fw.Version=${{ steps.version.outputs.version }}" -o fw ./cmd/fw
+
+      - name: Tag release
+        run: |
+          git tag "${{ steps.version.outputs.next }}"
+          git push origin "${{ steps.version.outputs.next }}"
+
+      - name: Summary
+        run: |
+          echo "Released ${{ steps.version.outputs.next }}"
+          echo "Users can now run: fw update"

@@ -21,5 +21,8 @@ vendor/
 .env
 .env.*
 
+# Node/frontend
+node_modules/
+
 # build artifacts
 /tmp/
