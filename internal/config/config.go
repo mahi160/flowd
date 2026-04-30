@@ -15,6 +15,7 @@ type Config struct {
 	TrackRawKeys       bool     `yaml:"track_raw_keys"`
 	PushDB             bool     `yaml:"push_db"`
 	RepoPath           string   `yaml:"repo_path"`
+	GitRemote          string   `yaml:"git_remote"`
 	Branch             string   `yaml:"branch"`
 	AICommand          string   `yaml:"ai_command"`
 	ExcludePaths       []string `yaml:"exclude_paths"`

@@ -90,6 +90,15 @@ func cmdInit() *cobra.Command {
 			}
 			d.Close()
 			fmt.Printf("  database ready → %s\n", cfg.DBPath)
+
+			// set up private git repo if sync enabled
+			if cfg.PushDB {
+				if err := initwizard.SetupRepo(cfg.RepoPath, cfg.GitRemote, cfg.Branch); err != nil {
+					fmt.Printf("  warning: repo setup failed: %v\n", err)
+					fmt.Println("  you can set it up manually — see README for instructions")
+				}
+			}
+
 			fmt.Println()
 			fmt.Println("  run `fw start` to begin tracking")
 			return nil
