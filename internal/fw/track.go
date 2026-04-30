@@ -105,7 +105,7 @@ func (t *Tracker) poll() {
 	}
 
 	repo := RepoName(p.Cwd)
-	cat := ClassifyCommand(p.Command)
+	cat := p.Window
 	pl := GetPlatform()
 	meta, _ := json.Marshal(PaneMeta{
 		Session: p.Session, Window: p.Window, Pane: p.Pane,
