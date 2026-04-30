@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/mahi/flowd/internal/db"
 	"github.com/mahi/flowd/internal/logger"
 	"github.com/mahi/flowd/internal/session"
+	"github.com/mahi/flowd/internal/summarizer"
 )
 
 var (
@@ -74,8 +77,22 @@ func cmdStart() *cobra.Command {
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer cancel()
 
-			tracker := session.NewTracker(d, cfg.PollIntervalSec)
-			tracker.Run(ctx)
+			var wg sync.WaitGroup
+			wg.Add(2)
+
+			go func() {
+				defer wg.Done()
+				tracker := session.NewTracker(d, cfg.PollIntervalSec)
+				tracker.Run(ctx)
+			}()
+
+			go func() {
+				defer wg.Done()
+				sched := summarizer.NewScheduler(d, cfg.SummaryIntervalMin)
+				sched.Run(ctx)
+			}()
+
+			wg.Wait()
 			fmt.Println("flowd stopped")
 			return nil
 		},
@@ -121,15 +138,37 @@ func cmdStatus() *cobra.Command {
 }
 
 func cmdSummary() *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "summary [now]",
-		Short: "Generate a summary for the current or last 30-min block",
+		Short: "Generate summary for the current or last 30-min block",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("summary not yet implemented (Phase 3)")
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			d, err := openDB(cfg)
+			if err != nil {
+				return err
+			}
+			defer d.Close()
+
+			now := time.Now().UTC()
+			interval := time.Duration(cfg.SummaryIntervalMin) * time.Minute
+			// align end to last boundary
+			unix := now.UnixNano()
+			iv := interval.Nanoseconds()
+			endNano := unix - (unix % iv)
+			end := time.Unix(0, endNano).UTC()
+			start := end.Add(-interval)
+
+			block, err := summarizer.BuildBlock(cmd.Context(), d, start, end)
+			if err != nil {
+				return err
+			}
+			fmt.Println(block.Summary)
 			return nil
 		},
 	}
-	return cmd
 }
 
 func cmdReport() *cobra.Command {
@@ -137,7 +176,59 @@ func cmdReport() *cobra.Command {
 		Use:   "report [today|week]",
 		Short: "Show activity report",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Println("report not yet implemented (Phase 5)")
+			cfg, err := loadConfig()
+			if err != nil {
+				return err
+			}
+			d, err := openDB(cfg)
+			if err != nil {
+				return err
+			}
+			defer d.Close()
+
+			period := "today"
+			if len(args) > 0 {
+				period = args[0]
+			}
+
+			var start, end time.Time
+			now := time.Now()
+			switch period {
+			case "week":
+				end = now
+				start = now.AddDate(0, 0, -7)
+			default: // today
+				y, m, day := now.Date()
+				start = time.Date(y, m, day, 0, 0, 0, 0, now.Location())
+				end = start.Add(24 * time.Hour)
+			}
+
+			rows, err := d.QueryContext(cmd.Context(),
+				`SELECT start_ts, end_ts, repo, focused_minutes, switches, tools, summary
+				 FROM blocks WHERE start_ts >= ? AND start_ts < ? ORDER BY start_ts`,
+				start.UTC(), end.UTC(),
+			)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+
+			count := 0
+			totalFocus := 0
+			for rows.Next() {
+				var startTS, endTS, repo, tools, summary string
+				var focused, switches int
+				rows.Scan(&startTS, &endTS, &repo, &focused, &switches, &tools, &summary)
+				fmt.Printf("── %s → %s  repo:%-20s focus:%dm switches:%d\n",
+					startTS, endTS, repo, focused, switches)
+				totalFocus += focused
+				count++
+			}
+			if count == 0 {
+				fmt.Printf("no blocks for %s\n", period)
+			} else {
+				fmt.Printf("\ntotal: %d blocks, %d focused minutes\n", count, totalFocus)
+			}
 			return nil
 		},
 	}
