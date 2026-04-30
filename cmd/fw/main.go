@@ -134,7 +134,7 @@ func cmdStart() *cobra.Command {
 
 			go func() {
 				defer wg.Done()
-				tracker := session.NewTracker(d, cfg.PollIntervalSec)
+				tracker := session.NewTracker(d, cfg.PollIntervalSec, cfg.WatchDirs)
 				tracker.Run(ctx)
 			}()
 

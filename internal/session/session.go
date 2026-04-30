@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/mahi/flowd/internal/collector/process"
@@ -30,15 +31,17 @@ type PaneMeta struct {
 }
 
 type Tracker struct {
-	db       *db.DB
-	interval time.Duration
-	last     *tmux.PaneState
+	db        *db.DB
+	interval  time.Duration
+	watchDirs []string
+	last      *tmux.PaneState
 }
 
-func NewTracker(d *db.DB, pollSec int) *Tracker {
+func NewTracker(d *db.DB, pollSec int, watchDirs []string) *Tracker {
 	return &Tracker{
-		db:       d,
-		interval: time.Duration(pollSec) * time.Second,
+		db:        d,
+		interval:  time.Duration(pollSec) * time.Second,
+		watchDirs: watchDirs,
 	}
 }
 
@@ -67,6 +70,12 @@ func (t *Tracker) poll() {
 		return
 	}
 
+	// Skip panes outside watched directories
+	if !t.inWatchDirs(state.Cwd) {
+		slog.Debug("cwd outside watch_dirs, skipping", "cwd", state.Cwd)
+		return
+	}
+
 	repo := process.RepoName(state.Cwd)
 	cat := process.ClassifyCommand(state.Command)
 
@@ -82,10 +91,8 @@ func (t *Tracker) poll() {
 
 	metaJSON, _ := json.Marshal(meta)
 
-	// Always record pane_active tick
 	t.writeEvent(EventPaneActive, state.PaneID, string(metaJSON))
 
-	// Record diffs only
 	if t.last != nil {
 		if t.last.Cwd != state.Cwd {
 			t.writeEvent(EventCwdChange, state.Cwd, string(metaJSON))
@@ -96,6 +103,18 @@ func (t *Tracker) poll() {
 	}
 
 	t.last = state
+}
+
+func (t *Tracker) inWatchDirs(cwd string) bool {
+	if len(t.watchDirs) == 0 {
+		return true
+	}
+	for _, d := range t.watchDirs {
+		if strings.HasPrefix(cwd, d) {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *Tracker) writeEvent(typ EventType, value, meta string) {
