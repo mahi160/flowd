@@ -63,7 +63,8 @@ func cmdUpdate() *cobra.Command {
 			defer os.RemoveAll(tmpDir)
 
 			fmt.Printf("cloning %s...\n", latest)
-			if err := runGitCmd(ctx, "", "clone", "--depth=1", "--branch", latest, repoURL, tmpDir); err != nil {
+			if err := runGitCmd(ctx, "", "clone", "-c", "advice.detachedHead=false",
+				"--depth=1", "--branch", latest, repoURL, tmpDir); err != nil {
 				return fmt.Errorf("git clone: %w", err)
 			}
 
@@ -81,15 +82,27 @@ func cmdUpdate() *cobra.Command {
 				return fmt.Errorf("go build: %w", err)
 			}
 
-			// Replace the binary — try direct rename first, fall back with instructions.
+			// Replace the binary — try direct rename first, then fall back to sudo.
 			if err := replaceBinary(newBin, exe); err != nil {
-				// Likely a permission error (e.g. /usr/local/bin owned by root).
-				// Move the built binary somewhere accessible and tell the user.
+				// Stage the built binary in a temp location.
 				fallback := filepath.Join(os.TempDir(), "fw-new")
-				_ = os.Rename(newBin, fallback)
-				fmt.Printf("\ncould not replace %s: %v\n", exe, err)
-				fmt.Printf("run manually:\n  sudo mv %s %s\n", fallback, exe)
-				return nil
+				if renErr := os.Rename(newBin, fallback); renErr != nil {
+					// Cross-device rename (tmpDir on different fs) — copy instead.
+					if cpErr := copyFile(newBin, fallback, 0755); cpErr != nil {
+						return fmt.Errorf("could not stage binary: %w", cpErr)
+					}
+				}
+				fmt.Printf("\n%s is owned by root — running sudo to replace it\n", exe)
+				sudo := exec.CommandContext(ctx, "sudo", "mv", fallback, exe)
+				sudo.Stdin = os.Stdin
+				sudo.Stdout = os.Stdout
+				sudo.Stderr = os.Stderr
+				if sudoErr := sudo.Run(); sudoErr != nil {
+					os.Remove(fallback)
+					fmt.Printf("sudo failed: %v\nrun manually:\n  sudo mv %s %s\n", sudoErr, fallback, exe)
+					return nil
+				}
+				os.Remove(fallback) // clean up if sudo cp was used instead of mv
 			}
 
 			fmt.Printf("\nupdated to %s ✓\n", latest)
@@ -126,6 +139,25 @@ func latestRemoteTag(ctx context.Context) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no semver tags found at %s", repoURL)
+}
+
+// copyFile copies src to dst with the given permissions.
+func copyFile(src, dst string, perm os.FileMode) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		os.Remove(dst)
+		return err
+	}
+	return out.Close()
 }
 
 // replaceBinary atomically replaces dst with src on the same filesystem.
