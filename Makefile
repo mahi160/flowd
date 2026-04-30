@@ -9,7 +9,7 @@ build:
 
 install:
 	go build $(LDFLAGS) -o $(BINARY) ./cmd/fw
-	sudo mv $(BINARY) /usr/local/bin/$(BINARY)
+	cp $(BINARY) /usr/local/bin/$(BINARY)
 
 clean:
 	rm -f $(BINARY)
