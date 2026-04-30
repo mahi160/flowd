@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS blocks (
   focused_minutes INTEGER NOT NULL DEFAULT 0,
   switches        INTEGER NOT NULL DEFAULT 0,
   data            TEXT NOT NULL DEFAULT '',
-  summary         TEXT NOT NULL DEFAULT ''
+  summary         TEXT NOT NULL DEFAULT '',
+  ai_summary      TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_blocks_start ON blocks(start_ts);
 `
@@ -49,7 +50,8 @@ func OpenDB(path string) (*DB, error) {
 		conn.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	// migrate older DBs: add `data` column if missing.
+	// migrate older DBs: add columns if missing (errors ignored if already present).
 	_, _ = conn.Exec(`ALTER TABLE blocks ADD COLUMN data TEXT NOT NULL DEFAULT ''`)
+	_, _ = conn.Exec(`ALTER TABLE blocks ADD COLUMN ai_summary TEXT NOT NULL DEFAULT ''`)
 	return &DB{conn}, nil
 }

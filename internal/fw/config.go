@@ -13,12 +13,15 @@ type Config struct {
 	SummaryIntervalMin int      `yaml:"summary_interval_min"`
 	MinFocusMin        int      `yaml:"min_focus_min"`
 	IdleThresholdSec   int      `yaml:"idle_threshold_sec"`
-	PushDB             bool     `yaml:"push_db"`
 	RepoPath           string   `yaml:"repo_path"`
-	GitRemote          string   `yaml:"git_remote"`
+	GitRemote          string   `yaml:"git_remote"` // blank = local-only (no push)
 	Branch             string   `yaml:"branch"`
 	WatchDirs          []string `yaml:"watch_dirs"`
-	DBPath             string   `yaml:"db_path"`
+	DBPath             string   `yaml:"db_path"` // lives inside repo by default
+
+	AIEnabled bool   `yaml:"ai_enabled"`
+	AICommand string `yaml:"ai_command"` // any CLI reading stdin → stdout. Run via `sh -c`.
+	AIPrompt  string `yaml:"ai_prompt"`  // prepended to the block summary on stdin.
 }
 
 func DefaultConfig() *Config {
@@ -28,11 +31,12 @@ func DefaultConfig() *Config {
 		SummaryIntervalMin: 30,
 		MinFocusMin:        15,
 		IdleThresholdSec:   120,
-		PushDB:             false,
 		RepoPath:           filepath.Join(home, "flowd-private"),
 		Branch:             "main",
-		DBPath:             filepath.Join(home, ".local", "share", "flowd", "flowd.db"),
+		DBPath:             filepath.Join(home, "flowd-private", "flowd.db"),
 		WatchDirs:          []string{home},
+		AIEnabled:          false,
+		AIPrompt:           "Summarize this 30-minute coding session in 2 short sentences. Focus on what was accomplished and any patterns. Be concise.",
 	}
 }
 

@@ -36,6 +36,11 @@ func WriteJournal(repoPath string, b *Block) error {
 		fmt.Fprintf(&sb, "%s\n\n", dayHeading)
 	}
 	sb.WriteString(b.Summary)
+	if b.AISummary != "" {
+		sb.WriteString("\n> ")
+		sb.WriteString(strings.ReplaceAll(b.AISummary, "\n", "\n> "))
+		sb.WriteString("\n")
+	}
 	sb.WriteString("\n")
 	return os.WriteFile(logFile, []byte(sb.String()), 0640)
 }

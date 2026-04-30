@@ -49,20 +49,30 @@ func RunInitWizard() (*Config, error) {
 	fmt.Println("  flowd init — Press Enter to accept [default].")
 	fmt.Println()
 
-	cfg.DBPath = ask(r, "DB path", cfg.DBPath)
+	fmt.Println("  ── Journal repo ──")
+	fmt.Println("  Private repo where flowd stores summaries AND the SQLite DB.")
+	fmt.Println("  Provide a remote URL to keep it synced; leave blank for local-only.")
+	cfg.GitRemote = ask(r, "private repo remote URL (blank = local only)", cfg.GitRemote)
+	cfg.RepoPath = ask(r, "local repo path", cfg.RepoPath)
+	cfg.Branch = ask(r, "branch", cfg.Branch)
+	cfg.DBPath = filepath.Join(expandHome(cfg.RepoPath), "flowd.db")
+
+	fmt.Println()
+	fmt.Println("  ── Polling ──")
 	cfg.PollIntervalSec = askInt(r, "tmux poll interval (seconds)", cfg.PollIntervalSec)
 	cfg.SummaryIntervalMin = askInt(r, "summary block interval (minutes)", cfg.SummaryIntervalMin)
 	cfg.MinFocusMin = askInt(r, "min focused minutes per block to push", cfg.MinFocusMin)
 	cfg.IdleThresholdSec = askInt(r, "idle threshold (sec) — pause tracking after no input", cfg.IdleThresholdSec)
 
 	fmt.Println()
-	fmt.Println("  ── Journal repo ──")
-	fmt.Println("  Private repo where flowd writes summaries (NOT your project repo).")
-	cfg.PushDB = askBool(r, "sync summaries to a private journal repo", cfg.PushDB)
-	if cfg.PushDB {
-		cfg.RepoPath = ask(r, "local journal repo path", cfg.RepoPath)
-		cfg.Branch = ask(r, "branch", cfg.Branch)
-		cfg.GitRemote = ask(r, "remote URL (blank to skip)", cfg.GitRemote)
+	fmt.Println("  ── AI summaries (optional) ──")
+	fmt.Println("  Pipe each block's summary through any CLI AI tool (claude, codex,")
+	fmt.Println("  pi, opencode, llm, etc). The tool must read stdin and print to stdout.")
+	cfg.AIEnabled = askBool(r, "enable AI summaries", cfg.AIEnabled)
+	if cfg.AIEnabled {
+		fmt.Println("  Examples: 'claude --print', 'codex exec', 'llm -m claude-3-5-sonnet'")
+		cfg.AICommand = ask(r, "AI command", cfg.AICommand)
+		cfg.AIPrompt = ask(r, "AI prompt", cfg.AIPrompt)
 	}
 
 	fmt.Println()
@@ -84,17 +94,46 @@ func splitCSV(s string) []string {
 	return out
 }
 
+// SetupRepo prepares the journal repo. If a remote is given and the path
+// doesn't exist yet, it tries `git clone`. Otherwise it `git init`s in
+// place and adds the remote (if any). Always writes a .gitignore that
+// excludes SQLite work files.
 func SetupRepo(repoPath, remote, branch string) error {
 	repoPath = expandHome(repoPath)
-	if err := os.MkdirAll(repoPath, 0750); err != nil {
+
+	alreadyRepo := false
+	if _, err := os.Stat(filepath.Join(repoPath, ".git")); err == nil {
+		alreadyRepo = true
+	}
+
+	if !alreadyRepo {
+		if remote != "" {
+			// Try clone. Falls back to init on failure (e.g., empty remote).
+			if _, err := os.Stat(repoPath); os.IsNotExist(err) || isEmptyDir(repoPath) {
+				out, err := exec.Command("git", "clone", "-b", branch, remote, repoPath).CombinedOutput()
+				if err == nil {
+					fmt.Printf("  git clone → %s\n", repoPath)
+					alreadyRepo = true
+				} else {
+					fmt.Printf("  clone failed (%s) — initializing fresh repo\n", strings.TrimSpace(string(out)))
+				}
+			}
+		}
+		if !alreadyRepo {
+			if err := os.MkdirAll(repoPath, 0750); err != nil {
+				return err
+			}
+			if out, err := gitIn(repoPath, "init", "-b", branch); err != nil {
+				return fmt.Errorf("git init: %w\n%s", err, out)
+			}
+			fmt.Printf("  git init → %s\n", repoPath)
+		}
+	}
+
+	if err := writeGitignore(repoPath); err != nil {
 		return err
 	}
-	if _, err := os.Stat(filepath.Join(repoPath, ".git")); os.IsNotExist(err) {
-		if out, err := gitIn(repoPath, "init", "-b", branch); err != nil {
-			return fmt.Errorf("git init: %w\n%s", err, out)
-		}
-		fmt.Printf("  git init → %s\n", repoPath)
-	}
+
 	if remote == "" {
 		return nil
 	}
@@ -112,6 +151,26 @@ func SetupRepo(repoPath, remote, branch string) error {
 		fmt.Printf("  remote origin updated → %s\n", remote)
 	}
 	return nil
+}
+
+func isEmptyDir(p string) bool {
+	entries, err := os.ReadDir(p)
+	return err == nil && len(entries) == 0
+}
+
+func writeGitignore(repoPath string) error {
+	const body = "# flowd — SQLite work files\nflowd.db-wal\nflowd.db-shm\n"
+	path := filepath.Join(repoPath, ".gitignore")
+	existing, _ := os.ReadFile(path)
+	if strings.Contains(string(existing), "flowd.db-wal") {
+		return nil
+	}
+	merged := string(existing)
+	if merged != "" && !strings.HasSuffix(merged, "\n") {
+		merged += "\n"
+	}
+	merged += body
+	return os.WriteFile(path, []byte(merged), 0640)
 }
 
 func AskTmuxAutostart() bool {

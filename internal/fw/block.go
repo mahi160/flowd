@@ -26,6 +26,7 @@ type Block struct {
 	LinesAdded int            `json:"lines_added"`
 	LinesDel   int            `json:"lines_del"`
 	Summary    string         `json:"-"`
+	AISummary  string         `json:"ai_summary,omitempty"`
 }
 
 // BuildBlock aggregates events in [start, end). When persist is true,

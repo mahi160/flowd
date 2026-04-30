@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -62,10 +63,8 @@ func cmdInit() *cobra.Command {
 			d.Close()
 			fmt.Printf("  db ready → %s\n", cfg.DBPath)
 
-			if cfg.PushDB {
-				if err := SetupRepo(cfg.RepoPath, cfg.GitRemote, cfg.Branch); err != nil {
-					fmt.Printf("  warn: repo setup: %v\n", err)
-				}
+			if err := SetupRepo(cfg.RepoPath, cfg.GitRemote, cfg.Branch); err != nil {
+				fmt.Printf("  warn: repo setup: %v\n", err)
 			}
 			if AskTmuxAutostart() {
 				if err := SetupTmuxAutostart(); err != nil {
@@ -143,11 +142,28 @@ func runScheduler(ctx context.Context, d *DB, cfg *Config) {
 				"focused_min", b.FocusedMin, "min", cfg.MinFocusMin)
 			continue
 		}
+		if cfg.AIEnabled && cfg.AICommand != "" {
+			ai, err := RunAI(ctx, cfg.AICommand, cfg.AIPrompt, b.Summary)
+			if err != nil {
+				slog.Warn("ai summary", "err", err)
+			} else if ai != "" {
+				b.AISummary = ai
+				if _, err := d.ExecContext(ctx,
+					`UPDATE blocks SET ai_summary=? WHERE start_ts=?`,
+					ai, b.StartTS.UTC()); err != nil {
+					slog.Warn("save ai summary", "err", err)
+				}
+			}
+		}
 		if err := WriteJournal(cfg.RepoPath, b); err != nil {
 			slog.Error("journal write", "err", err)
 			continue
 		}
-		if cfg.PushDB {
+		if cfg.GitRemote != "" {
+			// flush WAL so the on-disk .db is current before commit
+			if _, err := d.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+				slog.Warn("wal checkpoint", "err", err)
+			}
 			if err := PushJournal(ctx, cfg.RepoPath, cfg.Branch); err != nil {
 				slog.Warn("journal push", "err", err)
 			}
@@ -185,9 +201,10 @@ func cmdStatus() *cobra.Command {
 }
 
 func cmdSummary() *cobra.Command {
-	return &cobra.Command{
+	var save bool
+	c := &cobra.Command{
 		Use:   "summary",
-		Short: "Build and print the last block",
+		Short: "Build and print the current block (use --save to persist it)",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := LoadConfig(cfgPath)
 			if err != nil {
@@ -201,16 +218,32 @@ func cmdSummary() *cobra.Command {
 			now := time.Now().UTC()
 			iv := time.Duration(cfg.SummaryIntervalMin) * time.Minute
 			u := now.UnixNano()
-			end := time.Unix(0, u-(u%iv.Nanoseconds())).UTC()
-			start := end.Add(-iv)
-			b, err := BuildBlock(cmd.Context(), d, start, end, cfg.PollIntervalSec, false)
+			// align end to last boundary; use now as end if --save so we
+			// capture all events up to this moment
+			var start, end time.Time
+			if save {
+				end = now
+				start = time.Unix(0, u-(u%iv.Nanoseconds())).UTC()
+				if start.Equal(end) || start.After(end) {
+					start = end.Add(-iv)
+				}
+			} else {
+				end = time.Unix(0, u-(u%iv.Nanoseconds())).UTC()
+				start = end.Add(-iv)
+			}
+			b, err := BuildBlock(cmd.Context(), d, start, end, cfg.PollIntervalSec, save)
 			if err != nil {
 				return err
+			}
+			if save {
+				fmt.Println("block saved.")
 			}
 			fmt.Println(b.Summary)
 			return nil
 		},
 	}
+	c.Flags().BoolVar(&save, "save", false, "persist the block to the DB (shows in dashboard)")
+	return c
 }
 
 func cmdReport() *cobra.Command {
@@ -243,7 +276,7 @@ func cmdReport() *cobra.Command {
 }
 
 func cmdDashboard() *cobra.Command {
-	var noOpen bool
+	var noOpen, aiRecap bool
 	var outFlag string
 	c := &cobra.Command{
 		Use:   "dashboard [today|week]",
@@ -267,11 +300,24 @@ func cmdDashboard() *cobra.Command {
 			if err != nil {
 				return err
 			}
+
+			recap := ""
+			if aiRecap {
+				if !cfg.AIEnabled || cfg.AICommand == "" {
+					fmt.Println("note: --ai-recap requires ai_enabled + ai_command in config; skipping")
+				} else {
+					recap, err = runAIRecap(cmd.Context(), cfg, blocks, period)
+					if err != nil {
+						fmt.Printf("note: ai recap failed: %v\n", err)
+					}
+				}
+			}
+
 			out := outFlag
 			if out == "" {
 				out = filepath.Join(os.TempDir(), fmt.Sprintf("flowd-%s.html", period))
 			}
-			if err := RenderDashboard(blocks, period, out); err != nil {
+			if err := RenderDashboard(blocks, period, recap, out); err != nil {
 				return err
 			}
 			fmt.Printf("dashboard → %s\n", out)
@@ -284,8 +330,28 @@ func cmdDashboard() *cobra.Command {
 		},
 	}
 	c.Flags().BoolVar(&noOpen, "no-open", false, "do not open the browser")
+	c.Flags().BoolVar(&aiRecap, "ai-recap", false, "run AI on all blocks for an aggregate recap (slow)")
 	c.Flags().StringVar(&outFlag, "out", "", "output file path (default: temp dir)")
 	return c
+}
+
+func runAIRecap(ctx context.Context, cfg *Config, blocks []Block, period string) (string, error) {
+	if len(blocks) == 0 {
+		return "", nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Period: %s\n\n", period)
+	for _, bl := range blocks {
+		b.WriteString(bl.Summary)
+		b.WriteString("\n")
+	}
+	prompt := cfg.AIPrompt
+	if prompt == "" {
+		prompt = "Give me a 3-bullet recap of this coding period: what was worked on, patterns noticed, and one suggestion. Be concise."
+	} else {
+		prompt = "Aggregate recap of multiple coding blocks. " + prompt
+	}
+	return RunAI(ctx, cfg.AICommand, prompt, b.String())
 }
 
 func cmdSetupTmux() *cobra.Command {
