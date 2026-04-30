@@ -1,9 +1,10 @@
 package fw
 
 import (
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,14 +13,8 @@ import (
 	"time"
 )
 
-//go:embed static/dashboard.html
-var dashboardHTML string
-
-//go:embed static/base.css
-var baseCSS []byte
-
-//go:embed static/theme.css
-var themeCSS []byte
+//go:embed static
+var staticFiles embed.FS
 
 type dashPayload struct {
 	Period        string         `json:"period"`
@@ -195,19 +190,33 @@ func RenderDashboard(blocks []Block, period, aiRecap, outPath string) error {
 	if err != nil {
 		return err
 	}
-	html := strings.Replace(dashboardHTML, "__FLOWD_DATA__", string(js), 1)
 	outDir := filepath.Dir(outPath)
 	if err := os.MkdirAll(outDir, 0750); err != nil {
 		return err
 	}
-	if err := os.WriteFile(outPath, []byte(html), 0644); err != nil {
-		return err
-	}
-	// Write CSS files alongside HTML so relative <link> tags resolve.
-	if err := os.WriteFile(filepath.Join(outDir, "base.css"), baseCSS, 0644); err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(outDir, "theme.css"), themeCSS, 0644)
+	// Copy every file under static/ to outDir, injecting data into dashboard.html.
+	return fs.WalkDir(staticFiles, "static", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(path, "static/")
+		if rel == "" {
+			return nil // root dir itself
+		}
+		dst := filepath.Join(outDir, filepath.FromSlash(rel))
+		if d.IsDir() {
+			return os.MkdirAll(dst, 0750)
+		}
+		data, err := staticFiles.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if rel == "dashboard.html" {
+			data = []byte(strings.Replace(string(data), "__FLOWD_DATA__", string(js), 1))
+			dst = outPath // honour explicit output path
+		}
+		return os.WriteFile(dst, data, 0644)
+	})
 }
 
 // OpenInBrowser opens a path/URL in the user's default browser.
