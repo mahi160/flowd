@@ -1,4 +1,4 @@
-const THEMES = ['dark', 'light', 'system'];
+const THEMES = ["dark", "light", "system"];
 
 const ICONS = {
   dark: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none">
@@ -16,31 +16,44 @@ const ICONS = {
   </svg>`,
 };
 
-let current = localStorage.getItem('fw-theme') || 'system';
+let current = localStorage.getItem("fw-theme") || "system";
 
 function resolved() {
-  return current === 'system'
-    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+  return current === "system"
+    ? window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light"
     : current;
 }
 
 export function apply(t) {
   current = t;
-  localStorage.setItem('fw-theme', t);
-  document.documentElement.setAttribute('data-theme', resolved());
-  const btn = document.getElementById('theme-btn');
-  if (btn) { btn.innerHTML = ICONS[t]; btn.title = `Theme: ${t}`; }
+  localStorage.setItem("fw-theme", t);
+  document.documentElement.setAttribute("data-theme", resolved());
+  const btn = document.getElementById("theme-btn");
+  if (btn) {
+    btn.innerHTML = ICONS[t];
+    btn.title = `Theme: ${t}`;
+  }
 }
 
-export function cycle() { apply(THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]); }
+export function cycle() {
+  apply(THEMES[(THEMES.indexOf(current) + 1) % THEMES.length]);
+}
 
-export function getCurrent() { return current; }
+export function getCurrent() {
+  return current;
+}
 
-export function getIcon(t) { return ICONS[t]; }
+export function getIcon(t) {
+  return ICONS[t];
+}
 
-export function init() {
+export function initTheme() {
   apply(current);
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    if (current === 'system') apply('system');
-  });
+  window
+    .matchMedia("(prefers-color-scheme: dark)")
+    .addEventListener("change", () => {
+      if (current === "system") apply("system");
+    });
 }
