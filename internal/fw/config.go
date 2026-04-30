@@ -1,4 +1,4 @@
-package config
+package fw
 
 import (
 	"fmt"
@@ -11,25 +11,21 @@ import (
 type Config struct {
 	PollIntervalSec    int      `yaml:"poll_interval_sec"`
 	SummaryIntervalMin int      `yaml:"summary_interval_min"`
-	TrackKeys          bool     `yaml:"track_keys"`
-	TrackRawKeys       bool     `yaml:"track_raw_keys"`
+	MinFocusMin        int      `yaml:"min_focus_min"`
 	PushDB             bool     `yaml:"push_db"`
 	RepoPath           string   `yaml:"repo_path"`
 	GitRemote          string   `yaml:"git_remote"`
 	Branch             string   `yaml:"branch"`
-	AICommand          string   `yaml:"ai_command"`
 	WatchDirs          []string `yaml:"watch_dirs"`
-	ExcludePaths       []string `yaml:"exclude_paths"`
 	DBPath             string   `yaml:"db_path"`
 }
 
-func Defaults() *Config {
+func DefaultConfig() *Config {
 	home, _ := os.UserHomeDir()
 	return &Config{
 		PollIntervalSec:    3,
 		SummaryIntervalMin: 30,
-		TrackKeys:          true,
-		TrackRawKeys:       false,
+		MinFocusMin:        15,
 		PushDB:             false,
 		RepoPath:           filepath.Join(home, "flowd-private"),
 		Branch:             "main",
@@ -38,9 +34,13 @@ func Defaults() *Config {
 	}
 }
 
-func Load(path string) (*Config, error) {
-	cfg := Defaults()
+func DefaultConfigPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "flowd", "config.yaml")
+}
 
+func LoadConfig(path string) (*Config, error) {
+	cfg := DefaultConfig()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -48,41 +48,32 @@ func Load(path string) (*Config, error) {
 		}
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
-
-	// expand ~ in paths
 	cfg.RepoPath = expandHome(cfg.RepoPath)
 	cfg.DBPath = expandHome(cfg.DBPath)
 	for i, d := range cfg.WatchDirs {
 		cfg.WatchDirs[i] = expandHome(d)
 	}
-
 	return cfg, nil
 }
 
-func DefaultPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "flowd", "config.yaml")
-}
-
-func Write(path string, cfg *Config) error {
+func WriteConfig(path string, cfg *Config) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 	data, err := yaml.Marshal(cfg)
 	if err != nil {
-		return fmt.Errorf("marshal config: %w", err)
+		return err
 	}
 	return os.WriteFile(path, data, 0640)
 }
 
-func expandHome(path string) string {
-	if len(path) >= 2 && path[:2] == "~/" {
+func expandHome(p string) string {
+	if len(p) >= 2 && p[:2] == "~/" {
 		home, _ := os.UserHomeDir()
-		return filepath.Join(home, path[2:])
+		return filepath.Join(home, p[2:])
 	}
-	return path
+	return p
 }
