@@ -46,9 +46,8 @@ func NewTracker(d *db.DB, pollSec int, watchDirs []string) *Tracker {
 }
 
 func (t *Tracker) Run(ctx context.Context) {
-	if !tmux.IsRunning() {
-		slog.Warn("tmux not running, collector idle")
-	}
+	// Wait for tmux to come up — useful when started from tmux.conf before server is ready
+	t.waitForTmux(ctx)
 
 	ticker := time.NewTicker(t.interval)
 	defer ticker.Stop()
@@ -58,19 +57,43 @@ func (t *Tracker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if !tmux.IsRunning() {
+				slog.Debug("tmux gone, waiting")
+				t.waitForTmux(ctx)
+				continue
+			}
 			t.poll()
 		}
 	}
 }
 
+// waitForTmux blocks until tmux is available or ctx is cancelled.
+func (t *Tracker) waitForTmux(ctx context.Context) {
+	if tmux.IsRunning() {
+		return
+	}
+	slog.Info("waiting for tmux to start")
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(2 * time.Second):
+			if tmux.IsRunning() {
+				slog.Info("tmux detected, starting collector")
+				return
+			}
+		}
+	}
+}
+
 func (t *Tracker) poll() {
-	state, err := tmux.Active()
+	// Track the most-recently-active pane across ALL sessions globally
+	state, err := tmux.MostActive()
 	if err != nil {
 		slog.Debug("tmux poll failed", "err", err)
 		return
 	}
 
-	// Skip panes outside watched directories
 	if !t.inWatchDirs(state.Cwd) {
 		slog.Debug("cwd outside watch_dirs, skipping", "cwd", state.Cwd)
 		return

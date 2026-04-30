@@ -89,6 +89,10 @@ func Run() (*config.Config, error) {
 	cfg.WatchDirs = splitDirs(rawDirs)
 
 	fmt.Println()
+	fmt.Println("  ── Tmux autostart ────────────────────────────────")
+	fmt.Println("  Adds 'fw start' to ~/.tmux.conf so tracking begins with every tmux session.")
+
+	fmt.Println()
 	fmt.Println("  ── AI summaries ──────────────────────────────────")
 	fmt.Println("  Leave blank to skip. Examples: claude prompt / gemini chat")
 	cfg.AICommand = ask(r, "AI command", cfg.AICommand)
@@ -136,6 +140,12 @@ func SetupRepo(repoPath, remote, branch string) error {
 	}
 
 	return nil
+}
+
+// AskTmuxAutostart asks the user if they want fw to start with tmux.
+func AskTmuxAutostart() bool {
+	r := bufio.NewReader(os.Stdin)
+	return askBool(r, "start fw automatically when tmux starts", false)
 }
 
 func splitDirs(s string) []string {
