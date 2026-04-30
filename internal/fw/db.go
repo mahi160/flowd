@@ -22,7 +22,7 @@ CREATE INDEX IF NOT EXISTS idx_events_type ON events(type);
 
 CREATE TABLE IF NOT EXISTS blocks (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
-  start_ts        DATETIME NOT NULL,
+  start_ts        DATETIME NOT NULL UNIQUE,
   end_ts          DATETIME NOT NULL,
   project         TEXT NOT NULL DEFAULT '',
   repo            TEXT NOT NULL DEFAULT '',
@@ -53,5 +53,9 @@ func OpenDB(path string) (*DB, error) {
 	// migrate older DBs: add columns if missing (errors ignored if already present).
 	_, _ = conn.Exec(`ALTER TABLE blocks ADD COLUMN data TEXT NOT NULL DEFAULT ''`)
 	_, _ = conn.Exec(`ALTER TABLE blocks ADD COLUMN ai_summary TEXT NOT NULL DEFAULT ''`)
+	// remove duplicate blocks keeping the latest id per start_ts
+	_, _ = conn.Exec(`DELETE FROM blocks WHERE id NOT IN (
+		SELECT MAX(id) FROM blocks GROUP BY start_ts
+	)`)
 	return &DB{conn}, nil
 }

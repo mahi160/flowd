@@ -54,12 +54,13 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 		StartTS: start, EndTS: end,
 		ByTool: map[string]int{}, ByProject: map[string]int{}, Languages: map[string]int{},
 	}
-	repoCt := map[string]int{}
-	projCt := map[string]int{}
-	repoSet := map[string]struct{}{}
-	editorTicks := 0
-	editorByRepo := map[string]int{}
-	activeTicks := 0
+	repoCt        := map[string]int{}
+	projCt        := map[string]int{}
+	repoSet       := map[string]struct{}{}
+	editorByRepo  := map[string]int{}  // repo → editor ticks
+	runtimeByCmd  := map[string]int{}  // command → runtime ticks (for lang inference)
+	cwdNoRepo     := map[string]int{}  // cwd → editor ticks (no git repo)
+	activeTicks   := 0
 
 	secPerTick := pollSec
 	if secPerTick <= 0 {
@@ -67,7 +68,7 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 	}
 
 	for _, e := range events {
-		if e.typ == EvCmdChange {
+		if e.typ == EvSessionChange {
 			b.Switches++
 		}
 		if e.typ != EvActive {
@@ -88,10 +89,14 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 			projCt[m.Cwd]++
 		}
 		if m.Category == "editor" {
-			editorTicks++
 			if m.Repo != "" {
 				editorByRepo[m.Repo]++
+			} else if m.Cwd != "" {
+				cwdNoRepo[m.Cwd]++
 			}
+		}
+		if m.Category == "runtime" {
+			runtimeByCmd[m.Command]++
 		}
 	}
 
@@ -147,12 +152,37 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 		}
 	}
 
+	// runtime command → language (node → JS, python → Python, etc.)
+	for cmd, ticks := range runtimeByCmd {
+		if lang := LangFromCommand(cmd); lang != "" {
+			b.Languages[lang] += (ticks*secPerTick + 30) / 60
+		}
+	}
+
+	// editor in dirs with no git repo → scan cwd for dominant language
+	for cwd, ticks := range cwdNoRepo {
+		mins := (ticks*secPerTick + 30) / 60
+		if mins == 0 {
+			mins = 1
+		}
+		counts := ScanLangs(cwd)
+		total := 0
+		for _, n := range counts {
+			total += n
+		}
+		if total > 0 {
+			for lang, n := range counts {
+				b.Languages[lang] += (mins * n) / total
+			}
+		}
+	}
+
 	b.Summary = render(b)
 
 	if persist {
 		dataJSON, _ := json.Marshal(b)
 		if _, err := d.ExecContext(ctx,
-			`INSERT INTO blocks (start_ts, end_ts, project, repo, focused_minutes, switches, data, summary)
+			`INSERT OR REPLACE INTO blocks (start_ts, end_ts, project, repo, focused_minutes, switches, data, summary)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 			b.StartTS.UTC(), b.EndTS.UTC(),
 			b.Project, b.Repo, b.FocusedMin, b.Switches,
@@ -196,7 +226,7 @@ func render(b *Block) string {
 	fmt.Fprintf(&sb, "## %s – %s\n\n",
 		b.StartTS.Local().Format("15:04"),
 		b.EndTS.Local().Format("15:04"))
-	fmt.Fprintf(&sb, "**Focus:** %d min  ·  **Switches:** %d\n", b.FocusedMin, b.Switches)
+	fmt.Fprintf(&sb, "**Focus:** %d min  ·  **Context switches:** %d\n", b.FocusedMin, b.Switches)
 	if b.Repo != "" {
 		if b.Branch != "" {
 			fmt.Fprintf(&sb, "**Repo:** %s (%s)\n", b.Repo, b.Branch)

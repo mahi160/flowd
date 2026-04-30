@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/spf13/cobra"
 )
+
+const pidFile = "/tmp/fw.pid"
 
 var (
 	cfgPath string
@@ -30,7 +33,7 @@ func Run() {
 	}
 	root.PersistentFlags().StringVar(&cfgPath, "config", DefaultConfigPath(), "config file path")
 	root.PersistentFlags().BoolVar(&debug, "debug", false, "enable debug logging")
-	root.AddCommand(cmdInit(), cmdStart(), cmdStatus(), cmdSummary(), cmdReport(), cmdDashboard(), cmdSetupTmux())
+	root.AddCommand(cmdInit(), cmdStart(), cmdStop(), cmdStatus(), cmdSummary(), cmdReport(), cmdDashboard(), cmdSetupTmux())
 
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
@@ -94,7 +97,12 @@ func cmdStart() *cobra.Command {
 			}
 			defer d.Close()
 
-			fmt.Println("flowd started (ctrl+c to stop)")
+			if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+				slog.Warn("write pid", "err", err)
+			}
+			defer os.Remove(pidFile)
+
+			fmt.Println("flowd started (ctrl+c to stop, or `fw stop`)")
 			slog.Info("daemon up", "db", cfg.DBPath, "poll_sec", cfg.PollIntervalSec)
 
 			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -159,11 +167,11 @@ func runScheduler(ctx context.Context, d *DB, cfg *Config) {
 			slog.Error("journal write", "err", err)
 			continue
 		}
+		// checkpoint WAL every block so on-disk .db stays current
+		if _, err := d.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
+			slog.Warn("wal checkpoint", "err", err)
+		}
 		if cfg.GitRemote != "" {
-			// flush WAL so the on-disk .db is current before commit
-			if _, err := d.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
-				slog.Warn("wal checkpoint", "err", err)
-			}
 			if err := PushJournal(ctx, cfg.RepoPath, cfg.Branch); err != nil {
 				slog.Warn("journal push", "err", err)
 			}
@@ -177,11 +185,58 @@ func nextBoundary(now time.Time, interval time.Duration) time.Time {
 	return time.Unix(0, u-(u%iv)+iv).UTC()
 }
 
+func cmdStop() *cobra.Command {
+	return &cobra.Command{
+		Use:   "stop",
+		Short: "Stop the running daemon",
+		RunE: func(*cobra.Command, []string) error {
+			data, err := os.ReadFile(pidFile)
+			if err != nil {
+				fmt.Println("flowd not running (no pid file)")
+				return nil
+			}
+			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+			if err != nil {
+				return fmt.Errorf("bad pid file: %w", err)
+			}
+			proc, err := os.FindProcess(pid)
+			if err != nil {
+				return fmt.Errorf("find process: %w", err)
+			}
+			if err := proc.Signal(syscall.SIGTERM); err != nil {
+				fmt.Printf("could not signal %d: %v\n", pid, err)
+				return nil
+			}
+			fmt.Printf("sent SIGTERM to flowd (pid %d)\n", pid)
+			return nil
+		},
+	}
+}
+
 func cmdStatus() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show DB status",
+		Short: "Show daemon status and DB counts",
 		RunE: func(*cobra.Command, []string) error {
+			// daemon running?
+			running := false
+			pid := 0
+			if data, err := os.ReadFile(pidFile); err == nil {
+				if p, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+					if proc, err := os.FindProcess(p); err == nil {
+						if proc.Signal(syscall.Signal(0)) == nil {
+							running = true
+							pid = p
+						}
+					}
+				}
+			}
+			if running {
+				fmt.Printf("daemon: running (pid %d)\n", pid)
+			} else {
+				fmt.Println("daemon: stopped")
+			}
+
 			cfg, err := LoadConfig(cfgPath)
 			if err != nil {
 				return err

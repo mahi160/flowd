@@ -9,9 +9,9 @@ import (
 )
 
 const (
-	EvActive    = "pane_active"
-	EvCwdChange = "cwd_change"
-	EvCmdChange = "cmd_change"
+	EvActive         = "pane_active"
+	EvCwdChange      = "cwd_change"
+	EvSessionChange  = "session_change" // project/context switch
 )
 
 type PaneMeta struct {
@@ -114,8 +114,8 @@ func (t *Tracker) poll() {
 		if t.last.Cwd != p.Cwd {
 			t.write(EvCwdChange, p.Cwd, string(meta))
 		}
-		if t.last.Command != p.Command {
-			t.write(EvCmdChange, p.Command, string(meta))
+		if t.last.Session != p.Session {
+			t.write(EvSessionChange, p.Session, string(meta))
 		}
 	}
 	t.last = p

@@ -368,7 +368,7 @@ function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":
   // KPIs
   const h = Math.floor(DATA.total_focus_min/60), m = DATA.total_focus_min%60;
   document.getElementById('kFocus').textContent = (h ? h+"h " : "") + m + "m";
-  document.getElementById('kFocusSub').textContent = DATA.total_blocks + " blocks · " + DATA.total_switches + " switches";
+  document.getElementById('kFocusSub').textContent = DATA.total_blocks + " blocks · " + DATA.total_switches + " context switches";
   document.getElementById('kRepo').textContent = DATA.top_repo || "—";
   document.getElementById('kBranch').textContent = DATA.top_branch ? "branch: " + DATA.top_branch : "";
   document.getElementById('kCode').textContent = DATA.files_changed + " files";
@@ -466,7 +466,7 @@ function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":
       '<div class="tl-head"><span class="repo">'+(b.repo||"—")+'</span>'+
       (b.branch?'<span class="branch">'+b.branch+'</span>':'')+
       '</div>'+
-      '<div class="tl-stats">'+b.focus+'m focus · '+b.switches+' switches</div>'+
+      '<div class="tl-stats">'+b.focus+'m focus · '+b.switches+' context switches</div>'+
       '<div class="bar"><i style="width:'+(100*b.focus/tlMax)+'%"></i></div>'+
       (b.ai?'<div class="tl-ai">✨ '+escapeHTML(b.ai)+'</div>':'')+
       '</div>';
