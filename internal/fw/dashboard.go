@@ -68,7 +68,8 @@ func buildDashPayload(period string, blocks []Block) dashPayload {
 		Machine:   pl.Machine,
 		OS:        pl.OS,
 	}
-	repoMin := map[string]int{}
+	repoMin    := map[string]int{}
+	repoBranch := map[string]string{}
 	for _, b := range blocks {
 		p.TotalFocusMin += b.FocusedMin
 		p.TotalSwitches += b.Switches
@@ -86,8 +87,8 @@ func buildDashPayload(period string, blocks []Block) dashPayload {
 		}
 		if b.Repo != "" {
 			repoMin[b.Repo] += b.FocusedMin
-			if b.FocusedMin > 0 && b.Branch != "" {
-				p.TopBranch = b.Branch
+			if b.Branch != "" {
+				repoBranch[b.Repo] = b.Branch
 			}
 		}
 		p.Timeline = append(p.Timeline, tlBlock{
@@ -109,6 +110,7 @@ func buildDashPayload(period string, blocks []Block) dashPayload {
 	}
 	p.TotalBlocks = len(blocks)
 	p.TopRepo = topKey(repoMin)
+	p.TopBranch = repoBranch[p.TopRepo]
 	p.Heatmap = buildHeatmap(period, blocks)
 	p.StreakDays = streak(blocks)
 	return p
