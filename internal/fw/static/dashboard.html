@@ -215,12 +215,17 @@ body::before {
 .hour-stats { display: flex; gap: 18px; padding-top: 12px; border-top: 1px solid var(--hairline-soft); }
 .hour-stats > div { display: flex; flex-direction: column; gap: 2px; }
 .hour-stats .tnum { font-family: var(--font-mono); font-size: var(--fs-13); color: var(--ink); }
-.streak-card { display: flex; flex-direction: column; }
-.streak-num { font-size: 28px; color: var(--accent); margin-left: 8px; vertical-align: -3px; }
-.streak-cells { display: grid; grid-template-columns: repeat(15, 1fr); grid-template-rows: repeat(2, 14px); gap: 4px; margin: 14px 0; }
-.streak-cell { border-radius: 4px; background: color-mix(in oklch, var(--moss) calc(var(--i, 0) * 80%), var(--bg-inset)); border: 1px solid color-mix(in oklch, var(--moss) calc(var(--i, 0) * 35%), var(--hairline-soft)); }
-.streak-foot { display: flex; align-items: center; gap: 12px; font-size: 10px; }
-.hairline-streak { flex: 1; height: 1px; background: var(--hairline-soft); }
+.streak-card { display: flex; flex-direction: column; gap: 0; }
+.streak-hero { display: flex; align-items: flex-end; gap: 10px; margin: 4px 0 18px; }
+.streak-big { font-size: 72px; line-height: 1; color: var(--accent); letter-spacing: -2px; }
+.streak-hero-right { display: flex; flex-direction: column; gap: 2px; padding-bottom: 10px; }
+.streak-hero-label { font-size: var(--fs-15); color: var(--ink-2); font-weight: 500; }
+.streak-hero-sub { font-size: var(--fs-12); color: var(--ink-4); font-family: var(--font-mono); }
+.streak-row { display: grid; grid-template-columns: repeat(30, 1fr); gap: 3px; }
+.streak-pip { height: 22px; border-radius: 4px; background: color-mix(in oklch, var(--moss) calc(var(--i, 0) * 85%), var(--bg-inset)); border: 1px solid color-mix(in oklch, var(--moss) calc(var(--i, 0) * 40%), var(--hairline-soft)); transition: transform .12s; }
+.streak-pip:hover { transform: scaleY(1.25); transform-origin: bottom; }
+.streak-pip.is-today { border-color: var(--moss); box-shadow: 0 0 0 1px color-mix(in oklch, var(--moss) 50%, transparent); }
+.streak-axis { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--font-mono); font-size: 10px; color: var(--ink-5); }
 .grid-bot { display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; }
 .timeline-card { display: flex; flex-direction: column; }
 .timeline-scroll { max-height: 400px; overflow-y: auto; padding-right: 6px; margin-right: -6px; }
@@ -861,28 +866,33 @@ function HourPattern() {
 // STREAK
 // ============================================================
 function StreakCard() {
+  const s = DATA.streakDays;
+  const label = s === 1 ? 'day streak' : 'day streak';
   return (
     <div className="card streak-card">
       <div className="card-head">
-        <div>
-          <div className="card-title">
-            Streak
-            <span className="streak-num font-display tnum"> {DATA.streakDays}</span>
-            <span className="dim"> days</span>
-          </div>
-          <div className="card-sub">last 30 days · consecutive commit days</div>
+        <div className="card-title">Streak</div>
+        <div className="card-sub">last 30 days</div>
+      </div>
+      <div className="streak-hero">
+        <span className="streak-big font-display tnum">{s}</span>
+        <div className="streak-hero-right">
+          <span className="streak-hero-label">{label}</span>
+          <span className="streak-hero-sub">{s === 0 ? 'start coding today' : s >= 7 ? 'keep it up 🌿' : 'building momentum'}</span>
         </div>
       </div>
-      <div className="streak-cells">
+      <div className="streak-row">
         {DATA.streak.map(c => (
-          <span key={c.d} className="streak-cell" style={{"--i": c.v / 4}}
-            title={`${29 - c.d} days ago · ${c.v > 0 ? 'active' : 'inactive'}`}/>
+          <span key={c.d}
+            className={`streak-pip${c.d === 29 ? ' is-today' : ''}`}
+            style={{"--i": c.v / 4}}
+            title={c.d === 29 ? 'today' : `${29 - c.d}d ago`}
+          />
         ))}
       </div>
-      <div className="streak-foot">
-        <span className="eyebrow">30d ago</span>
-        <span className="hairline-streak"/>
-        <span className="eyebrow">today</span>
+      <div className="streak-axis">
+        <span>30d ago</span>
+        <span>today</span>
       </div>
     </div>
   );
