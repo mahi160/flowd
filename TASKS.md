@@ -25,9 +25,9 @@
 
 ## Phase 4 - Sync
 
-- [ ] markdown logs
-- [ ] git commit + push
-- [ ] retry handling
+- [x] markdown logs
+- [x] git commit + push
+- [x] retry handling
 
 ## Phase 5 - Reports
 
