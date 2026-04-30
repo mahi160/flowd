@@ -1,0 +1,25 @@
+# binary
+fw
+dist/
+
+# Go
+*.test
+*.out
+vendor/
+
+# macOS
+.DS_Store
+.AppleDouble
+
+# editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# env / secrets
+.env
+.env.*
+
+# build artifacts
+/tmp/
