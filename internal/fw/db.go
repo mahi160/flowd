@@ -49,5 +49,7 @@ func OpenDB(path string) (*DB, error) {
 		conn.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	// migrate older DBs: add `data` column if missing.
+	_, _ = conn.Exec(`ALTER TABLE blocks ADD COLUMN data TEXT NOT NULL DEFAULT ''`)
 	return &DB{conn}, nil
 }

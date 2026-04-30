@@ -19,16 +19,18 @@ type Block struct {
 	Branch     string         `json:"branch,omitempty"`
 	FocusedMin int            `json:"focused_min"`
 	Switches   int            `json:"switches"`
-	ByTool     map[string]int `json:"by_tool"`     // minutes
-	ByProject  map[string]int `json:"by_project"`  // minutes
-	Languages  map[string]int `json:"languages"`   // minutes (by editor time scaled to detected langs)
+	ByTool     map[string]int `json:"by_tool"`    // minutes
+	ByProject  map[string]int `json:"by_project"` // minutes
+	Languages  map[string]int `json:"languages"`  // minutes (by editor time scaled to detected langs)
 	FilesAdded int            `json:"files_added"`
 	LinesAdded int            `json:"lines_added"`
 	LinesDel   int            `json:"lines_del"`
 	Summary    string         `json:"-"`
 }
 
-func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int) (*Block, error) {
+// BuildBlock aggregates events in [start, end). When persist is true,
+// it inserts a row into the blocks table (use false for ad-hoc previews).
+func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, persist bool) (*Block, error) {
 	rows, err := d.QueryContext(ctx,
 		`SELECT type, value, meta FROM events WHERE ts >= ? AND ts < ? ORDER BY ts`,
 		start.UTC(), end.UTC())
@@ -128,88 +130,64 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int) (
 		if b.Repo == repo && b.Branch == "" {
 			b.Branch = CurrentBranch(root)
 		}
-		a, r, f := DiffStat(root, since, until)
-		b.LinesAdded += a
-		b.LinesDel += r
-		b.FilesAdded += f
+		stats := DiffStat(root, since, until)
+		b.FilesAdded += len(stats)
+		for _, s := range stats {
+			b.LinesAdded += s.Added
+			b.LinesDel += s.Removed
+		}
 
-		// language attribution: split editor minutes for this repo across changed-file extensions
-		extMin := languageMinsForRepo(root, since, until, editorByRepo[repo]*secPerTick/60)
-		for k, v := range extMin {
+		// language attribution: split editor-minutes-for-this-repo across
+		// changed files, weighted by lines touched (added+removed). Falls
+		// back to file count if no line data.
+		repoEditorMin := editorByRepo[repo] * secPerTick / 60
+		for k, v := range distributeByLines(stats, repoEditorMin) {
 			b.Languages[k] += v
 		}
 	}
 
 	b.Summary = render(b)
 
-	dataJSON, _ := json.Marshal(b)
-	_, err = d.ExecContext(ctx,
-		`INSERT INTO blocks (start_ts, end_ts, project, repo, focused_minutes, switches, data, summary)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		b.StartTS.UTC(), b.EndTS.UTC(),
-		b.Project, b.Repo, b.FocusedMin, b.Switches,
-		string(dataJSON), b.Summary,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("insert block: %w", err)
+	if persist {
+		dataJSON, _ := json.Marshal(b)
+		if _, err := d.ExecContext(ctx,
+			`INSERT INTO blocks (start_ts, end_ts, project, repo, focused_minutes, switches, data, summary)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			b.StartTS.UTC(), b.EndTS.UTC(),
+			b.Project, b.Repo, b.FocusedMin, b.Switches,
+			string(dataJSON), b.Summary,
+		); err != nil {
+			return nil, fmt.Errorf("insert block: %w", err)
+		}
+		slog.Info("block saved", "start", start.Format(time.RFC3339), "focused_min", b.FocusedMin)
 	}
-	slog.Info("block saved", "start", start.Format(time.RFC3339), "focused_min", b.FocusedMin)
 	return b, nil
 }
 
-// languageMinsForRepo distributes totalMin minutes across the languages of files
-// modified in the window, weighted by file count.
-func languageMinsForRepo(root, since, until string, totalMin int) map[string]int {
-	if totalMin <= 0 {
+// distributeByLines splits totalMin across languages, weighted by lines
+// touched per file. If no lines are recorded (binary files only), falls
+// back to even distribution by file count.
+func distributeByLines(stats map[string]FileStat, totalMin int) map[string]int {
+	if totalMin <= 0 || len(stats) == 0 {
 		return nil
 	}
-	files := changedFiles(root, since, until)
-	if len(files) == 0 {
-		return nil
-	}
-	count := map[string]int{}
-	for _, f := range files {
-		ext := strings.ToLower(filepath.Ext(f))
-		count[langOf(ext)]++
+	weights := map[string]int{}
+	for f, s := range stats {
+		w := s.Added + s.Removed
+		if w == 0 {
+			w = 1
+		}
+		weights[langOf(strings.ToLower(filepath.Ext(f)))] += w
 	}
 	total := 0
-	for _, n := range count {
-		total += n
+	for _, w := range weights {
+		total += w
 	}
 	out := map[string]int{}
-	for k, n := range count {
-		out[k] = (totalMin * n) / total
+	for k, w := range weights {
+		out[k] = (totalMin * w) / total
 	}
 	return out
-}
-
-func changedFiles(root, since, until string) []string {
-	out, err := runOut("git", "-C", root, "log",
-		"--since="+since, "--until="+until,
-		"--name-only", "--pretty=format:")
-	files := map[string]struct{}{}
-	if err == nil {
-		for _, ln := range strings.Split(out, "\n") {
-			ln = strings.TrimSpace(ln)
-			if ln != "" {
-				files[ln] = struct{}{}
-			}
-		}
-	}
-	out, err = runOut("git", "-C", root, "diff", "--name-only")
-	if err == nil {
-		for _, ln := range strings.Split(out, "\n") {
-			ln = strings.TrimSpace(ln)
-			if ln != "" {
-				files[ln] = struct{}{}
-			}
-		}
-	}
-	res := make([]string, 0, len(files))
-	for f := range files {
-		res = append(res, f)
-	}
-	return res
 }
 
 func render(b *Block) string {

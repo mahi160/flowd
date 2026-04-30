@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type Pane struct {
@@ -19,20 +20,40 @@ func TmuxRunning() bool {
 	return exec.Command("tmux", "list-sessions").Run() == nil
 }
 
-// AttachedSession returns the session name of the first attached client,
-// or "" if no client is attached (tmux detached / out of focus).
-func AttachedSession() string {
-	out, err := exec.Command("tmux", "list-clients", "-F", "#{client_session}").Output()
+// AttachedSession returns the session name of the most-recently-active
+// attached client, plus the seconds since that client last had input.
+// Returns ("", 0) if no client is attached.
+func AttachedSession() (string, int) {
+	out, err := exec.Command("tmux", "list-clients", "-F", "#{client_session}|#{client_activity}").Output()
 	if err != nil {
-		return ""
+		return "", 0
 	}
-	for _, s := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		s = strings.TrimSpace(s)
-		if s != "" {
-			return s
+	now := time.Now().Unix()
+	bestSession := ""
+	bestIdle := int(1 << 30)
+	for _, ln := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		ln = strings.TrimSpace(ln)
+		if ln == "" {
+			continue
+		}
+		parts := strings.SplitN(ln, "|", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		var act int64
+		fmt.Sscan(parts[1], &act)
+		idle := int(now - act)
+		if idle < 0 {
+			idle = 0
+		}
+		if idle < bestIdle {
+			bestIdle, bestSession = idle, parts[0]
 		}
 	}
-	return ""
+	if bestSession == "" {
+		return "", 0
+	}
+	return bestSession, bestIdle
 }
 
 // ActivePane returns the active pane of the given session.

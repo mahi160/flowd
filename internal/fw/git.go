@@ -7,11 +7,6 @@ import (
 	"strings"
 )
 
-func runOut(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).Output()
-	return string(out), err
-}
-
 var extLang = map[string]string{
 	".go": "Go", ".rs": "Rust", ".py": "Python", ".js": "JavaScript",
 	".ts": "TypeScript", ".tsx": "TypeScript", ".jsx": "JavaScript",
@@ -59,46 +54,40 @@ func CurrentBranch(repo string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// DiffStat returns added, removed lines and changed-file count
-// for committed work in [start..end] plus current uncommitted diff.
-func DiffStat(repo, sinceISO, untilISO string) (added, removed, files int) {
-	// committed in window
-	out, err := exec.Command("git", "-C", repo, "log",
-		"--since="+sinceISO, "--until="+untilISO,
-		"--pretty=tformat:", "--numstat").Output()
-	if err == nil {
-		a, r, f := parseNumstat(string(out))
-		added += a
-		removed += r
-		files += f
-	}
-	// uncommitted (only count once per window — we always include current state)
-	out2, err := exec.Command("git", "-C", repo, "diff", "--numstat").Output()
-	if err == nil {
-		a, r, f := parseNumstat(string(out2))
-		added += a
-		removed += r
-		files += f
-	}
-	return
+type FileStat struct {
+	Added, Removed int
 }
 
-func parseNumstat(s string) (added, removed, files int) {
-	seen := map[string]struct{}{}
-	for _, ln := range strings.Split(strings.TrimSpace(s), "\n") {
-		if ln == "" {
-			continue
+// DiffStat returns per-file added/removed lines (deduped) for committed work
+// in [start..end] plus current uncommitted diff. Files appearing in both
+// sources are merged (lines summed, file counted once).
+func DiffStat(repo, sinceISO, untilISO string) map[string]FileStat {
+	files := map[string]FileStat{}
+	merge := func(s string) {
+		for _, ln := range strings.Split(strings.TrimSpace(s), "\n") {
+			if ln == "" {
+				continue
+			}
+			parts := strings.Fields(ln)
+			if len(parts) < 3 {
+				continue
+			}
+			a, _ := strconv.Atoi(parts[0]) // "-" → 0 (binary file)
+			r, _ := strconv.Atoi(parts[1])
+			f := parts[2]
+			cur := files[f]
+			cur.Added += a
+			cur.Removed += r
+			files[f] = cur
 		}
-		parts := strings.Fields(ln)
-		if len(parts) < 3 {
-			continue
-		}
-		a, _ := strconv.Atoi(parts[0])
-		r, _ := strconv.Atoi(parts[1])
-		added += a
-		removed += r
-		seen[parts[2]] = struct{}{}
 	}
-	files = len(seen)
-	return
+	if out, err := exec.Command("git", "-C", repo, "log",
+		"--since="+sinceISO, "--until="+untilISO,
+		"--pretty=tformat:", "--numstat").Output(); err == nil {
+		merge(string(out))
+	}
+	if out, err := exec.Command("git", "-C", repo, "diff", "--numstat").Output(); err == nil {
+		merge(string(out))
+	}
+	return files
 }
