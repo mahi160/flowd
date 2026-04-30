@@ -31,6 +31,6 @@
 
 ## Phase 5 - Reports
 
-- [ ] today report
-      n- [ ] weekly report
-- [ ] HTML dashboard
+- [x] today report
+- [x] weekly report
+- [x] HTML dashboard
