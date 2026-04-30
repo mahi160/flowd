@@ -81,6 +81,7 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 		activeTicks++
 		var m PaneMeta
 		if err := json.Unmarshal([]byte(e.meta), &m); err != nil {
+			slog.Warn("unmarshal event meta", "err", err)
 			continue
 		}
 		b.ByTool[m.Category] += secPerTick
@@ -193,7 +194,11 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 	b.Summary = render(b)
 
 	if persist {
-		dataJSON, _ := json.Marshal(b)
+		dataJSON, err := json.Marshal(b)
+		if err != nil {
+			slog.Error("marshal block", "err", err)
+			return nil, fmt.Errorf("marshal block: %w", err)
+		}
 		if _, err := d.ExecContext(ctx,
 			`INSERT OR REPLACE INTO blocks (start_ts, end_ts, project, repo, focused_minutes, switches, data, summary)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
