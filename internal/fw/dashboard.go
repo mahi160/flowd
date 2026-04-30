@@ -15,6 +15,12 @@ import (
 //go:embed static/dashboard.html
 var dashboardHTML string
 
+//go:embed static/base.css
+var baseCSS []byte
+
+//go:embed static/theme.css
+var themeCSS []byte
+
 type dashPayload struct {
 	Period        string         `json:"period"`
 	Generated     string         `json:"generated"`
@@ -190,10 +196,18 @@ func RenderDashboard(blocks []Block, period, aiRecap, outPath string) error {
 		return err
 	}
 	html := strings.Replace(dashboardHTML, "__FLOWD_DATA__", string(js), 1)
-	if err := os.MkdirAll(filepath.Dir(outPath), 0750); err != nil {
+	outDir := filepath.Dir(outPath)
+	if err := os.MkdirAll(outDir, 0750); err != nil {
 		return err
 	}
-	return os.WriteFile(outPath, []byte(html), 0644)
+	if err := os.WriteFile(outPath, []byte(html), 0644); err != nil {
+		return err
+	}
+	// Write CSS files alongside HTML so relative <link> tags resolve.
+	if err := os.WriteFile(filepath.Join(outDir, "base.css"), baseCSS, 0644); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(outDir, "theme.css"), themeCSS, 0644)
 }
 
 // OpenInBrowser opens a path/URL in the user's default browser.
