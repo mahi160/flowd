@@ -4,7 +4,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -181,6 +180,60 @@ func streak(blocks []Block) int {
 	return streak
 }
 
+// jsBundleOrder is the concatenation order for the inline JS bundle.
+// ES module import/export syntax is stripped so the result runs as a
+// plain script — no type="module", no file:// CORS restrictions.
+var jsBundleOrder = []string{
+	"static/js/utils.js",
+	"static/js/data.js",
+	"static/js/theme.js",
+	"static/js/components/header.js",
+	"static/js/components/hero.js",
+	"static/js/components/heatmap.js",
+	"static/js/components/insights.js",
+	"static/js/components/donut.js",
+	"static/js/components/languages.js",
+	"static/js/components/hours.js",
+	"static/js/components/streak.js",
+	"static/js/components/timeline.js",
+	"static/js/components/summary.js",
+	"static/js/components/week.js",
+	"static/js/app.js",
+}
+
+// bundleJS reads each file in jsBundleOrder, strips ES module
+// import/export keywords, and returns one concatenated JS string.
+func bundleJS() (string, error) {
+	var b strings.Builder
+	for _, path := range jsBundleOrder {
+		raw, err := staticFiles.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("bundle %s: %w", path, err)
+		}
+		fmt.Fprintf(&b, "// ── %s ──\n", filepath.Base(path))
+		for _, line := range strings.Split(string(raw), "\n") {
+			trimmed := strings.TrimSpace(line)
+			// Drop import lines: import { ... } from '...'
+			if strings.HasPrefix(trimmed, "import ") && strings.Contains(trimmed, " from ") {
+				continue
+			}
+			// Strip leading export/export default keyword
+			out := line
+			for _, kw := range []string{"export default ", "export "} {
+				if strings.HasPrefix(trimmed, kw) {
+					idx := strings.Index(line, kw)
+					out = line[:idx] + line[idx+len(kw):]
+					break
+				}
+			}
+			b.WriteString(out)
+			b.WriteByte('\n')
+		}
+		b.WriteByte('\n')
+	}
+	return b.String(), nil
+}
+
 // RenderDashboard writes a self-contained HTML file. aiRecap is optional;
 // pass "" to skip the aggregate AI block in the UI.
 func RenderDashboard(blocks []Block, period, aiRecap, outPath string) error {
@@ -190,33 +243,43 @@ func RenderDashboard(blocks []Block, period, aiRecap, outPath string) error {
 	if err != nil {
 		return err
 	}
+
+	// Read HTML shell.
+	tmpl, err := staticFiles.ReadFile("static/dashboard.html")
+	if err != nil {
+		return err
+	}
+	html := strings.Replace(string(tmpl), "__FLOWD_DATA__", string(js), 1)
+
+	// Bundle JS and inline it — avoids file:// CORS block on ES modules.
+	bundled, err := bundleJS()
+	if err != nil {
+		return err
+	}
+	html = strings.Replace(html,
+		`<script type="module" src="js/app.js"></script>`,
+		"<script>\n"+bundled+"\n</script>",
+		1)
+
 	outDir := filepath.Dir(outPath)
 	if err := os.MkdirAll(outDir, 0750); err != nil {
 		return err
 	}
-	// Copy every file under static/ to outDir, injecting data into dashboard.html.
-	return fs.WalkDir(staticFiles, "static", func(path string, d fs.DirEntry, err error) error {
+	if err := os.WriteFile(outPath, []byte(html), 0644); err != nil {
+		return err
+	}
+	// CSS files are loaded via <link> which is not subject to the same
+	// file:// CORS restriction — write them alongside the HTML.
+	for _, name := range []string{"base.css", "theme.css"} {
+		css, err := staticFiles.ReadFile("static/" + name)
 		if err != nil {
 			return err
 		}
-		rel := strings.TrimPrefix(path, "static/")
-		if rel == "" {
-			return nil // root dir itself
-		}
-		dst := filepath.Join(outDir, filepath.FromSlash(rel))
-		if d.IsDir() {
-			return os.MkdirAll(dst, 0750)
-		}
-		data, err := staticFiles.ReadFile(path)
-		if err != nil {
+		if err := os.WriteFile(filepath.Join(outDir, name), css, 0644); err != nil {
 			return err
 		}
-		if rel == "dashboard.html" {
-			data = []byte(strings.Replace(string(data), "__FLOWD_DATA__", string(js), 1))
-			dst = outPath // honour explicit output path
-		}
-		return os.WriteFile(dst, data, 0644)
-	})
+	}
+	return nil
 }
 
 // OpenInBrowser opens a path/URL in the user's default browser.
