@@ -1,5 +1,5 @@
 package main
 
-import "github.com/mahi/flowd/internal/fw"
+import "github.com/mahi160/flowd/internal/fw"
 
 func main() { fw.Run() }
