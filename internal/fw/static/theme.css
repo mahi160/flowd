@@ -1,145 +1,71 @@
-/* ============================================================
-   flowd — colour tokens & theme switching
-   Only custom properties live here. No layout, no sizing.
-   ============================================================ */
-
+/* flowd — colour tokens. No layout here, only var() definitions. */
 :root {
-  /* Type */
-  --font-display: "Fraunces", "Cormorant Garamond", Georgia, serif;
-  --font-sans:
-    "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono:
-    "JetBrains Mono", "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+  --font-display: "Fraunces", Georgia, serif;
+  --font-sans:    "Instrument Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono:    "JetBrains Mono", ui-monospace, monospace;
+  --r-sm: 8px;  --r-md: 12px;  --r-lg: 18px;  --r-pill: 999px;
 
-  /* Radii & shadows */
-  --r-xs: 4px;
-  --r-sm: 8px;
-  --r-md: 12px;
-  --r-lg: 18px;
-  --r-xl: 26px;
-  --r-pill: 999px;
-  --shadow-sm: 0 1px 2px rgba(20, 14, 6, 0.06);
-  --shadow-md: 0 4px 16px -4px rgba(20, 14, 6, 0.14);
-
-  /* Nature palette — shared across modes */
-  --moss: oklch(58% 0.12 145);
-  --moss-deep: oklch(42% 0.1 145);
-  --fern: oklch(72% 0.12 150);
-  --lichen: oklch(82% 0.1 130);
-  --amber: oklch(76% 0.16 75);
+  /* Nature palette */
+  --moss:       oklch(58% 0.12 145);
+  --moss-deep:  oklch(42% 0.10 145);
+  --fern:       oklch(72% 0.12 150);
+  --amber:      oklch(76% 0.16 75);
   --amber-deep: oklch(64% 0.18 60);
-  --terracotta: oklch(64% 0.15 40);
-  --rose-hip: oklch(60% 0.16 20);
-  --pine: oklch(38% 0.08 175);
-  --sage: oklch(70% 0.06 145);
+  --rose-hip:   oklch(60% 0.16 20);
 }
 
-/* ── Dark (default) ─────────────────────────────────────── */
-:root,
-[data-theme="dark"] {
+:root, [data-theme="dark"] {
   color-scheme: dark;
-
-  --bg: oklch(16% 0.012 130);
-  --bg-elev-1: oklch(20% 0.014 130);
-  --bg-elev-2: oklch(23% 0.016 135);
-  --bg-inset: oklch(14% 0.01 130);
-  --surface: oklch(21% 0.014 132);
-  --surface-2: oklch(25% 0.017 134);
-  --hairline: oklch(30% 0.018 135 / 0.9);
-  --hairline-soft: oklch(30% 0.018 135 / 0.5);
-
-  --ink: oklch(94% 0.012 95);
-  --ink-2: oklch(82% 0.02 95);
-  --ink-3: oklch(66% 0.02 95);
+  --bg:            oklch(16% 0.012 130);
+  --bg-elev:       oklch(23% 0.016 135);
+  --bg-inset:      oklch(14% 0.010 130);
+  --surface:       oklch(21% 0.014 132);
+  --surface-2:     oklch(25% 0.017 134);
+  --hairline:      oklch(30% 0.018 135 / .9);
+  --hairline-soft: oklch(30% 0.018 135 / .5);
+  --ink:   oklch(94% 0.012 95);
+  --ink-2: oklch(82% 0.020 95);
+  --ink-3: oklch(66% 0.020 95);
   --ink-4: oklch(52% 0.018 95);
   --ink-5: oklch(40% 0.016 95);
-
-  --accent: var(--moss);
-  --accent-ink: oklch(14% 0.04 145);
-  --accent-soft: oklch(35% 0.08 145 / 0.35);
-
+  --accent:      var(--moss);
+  --accent-ink:  oklch(14% 0.04 145);
+  --accent-soft: oklch(35% 0.08 145 / .35);
   --positive: var(--fern);
-  --warn: var(--amber-deep);
-  --danger: var(--rose-hip);
-
-  --card-glow: radial-gradient(
-    120% 80% at 0% 0%,
-    oklch(58% 0.12 145 / 0.06),
-    transparent 60%
-  );
-  --body-grain:
-    radial-gradient(
-      1200px 600px at 80% -10%,
-      oklch(40% 0.08 145 / 0.15),
-      transparent 60%
-    ),
-    radial-gradient(
-      900px 500px at -10% 110%,
-      oklch(40% 0.1 60 / 0.1),
-      transparent 60%
-    );
-
-  /* Categorical chart colours */
-  --c1: oklch(70% 0.14 145); /* moss   */
-  --c2: oklch(76% 0.15 75); /* amber  */
-  --c3: oklch(68% 0.14 40); /* terra  */
-  --c4: oklch(65% 0.1 175); /* pine   */
-  --c5: oklch(78% 0.1 100); /* lichen */
-  --c6: oklch(64% 0.16 20); /* rose   */
-  --c7: oklch(60% 0.08 280); /* dusk   */
-  --c8: oklch(72% 0.06 50); /* clay   */
+  --warn:     var(--amber-deep);
+  --danger:   var(--rose-hip);
+  --card-glow:  radial-gradient(120% 80% at 0% 0%, oklch(58% 0.12 145 / .06), transparent 60%);
+  --body-grain: radial-gradient(1200px 600px at 80% -10%, oklch(40% 0.08 145 / .15), transparent 60%),
+                radial-gradient(900px  500px at -10% 110%, oklch(40% 0.10 60 / .10), transparent 60%);
+  --c1: oklch(70% 0.14 145); --c2: oklch(76% 0.15 75);  --c3: oklch(68% 0.14 40);
+  --c4: oklch(65% 0.10 175); --c5: oklch(78% 0.10 100); --c6: oklch(64% 0.16 20);
+  --c7: oklch(60% 0.08 280); --c8: oklch(72% 0.06 50);
 }
 
-/* ── Light ──────────────────────────────────────────────── */
 [data-theme="light"] {
   color-scheme: light;
-
-  --bg: oklch(97% 0.012 85);
-  --bg-elev-1: oklch(99% 0.008 85);
-  --bg-elev-2: oklch(100% 0 0);
-  --bg-inset: oklch(94% 0.014 85);
-  --surface: oklch(99% 0.008 85);
-  --surface-2: oklch(96% 0.012 85);
-  --hairline: oklch(86% 0.014 85);
+  --bg:            oklch(97% 0.012 85);
+  --bg-elev:       oklch(100% 0 0);
+  --bg-inset:      oklch(94% 0.014 85);
+  --surface:       oklch(99% 0.008 85);
+  --surface-2:     oklch(96% 0.012 85);
+  --hairline:      oklch(86% 0.014 85);
   --hairline-soft: oklch(90% 0.012 85);
-
-  --ink: oklch(22% 0.02 60);
+  --ink:   oklch(22% 0.020 60);
   --ink-2: oklch(34% 0.022 60);
   --ink-3: oklch(48% 0.022 60);
   --ink-4: oklch(60% 0.022 60);
-  --ink-5: oklch(72% 0.02 60);
-
-  --accent: var(--moss-deep);
-  --accent-ink: oklch(98% 0.01 145);
-  --accent-soft: oklch(85% 0.06 145 / 0.6);
-
+  --ink-5: oklch(72% 0.020 60);
+  --accent:      var(--moss-deep);
+  --accent-ink:  oklch(98% 0.01 145);
+  --accent-soft: oklch(85% 0.06 145 / .6);
   --positive: var(--moss);
-  --warn: var(--amber-deep);
-  --danger: var(--rose-hip);
-
-  --card-glow: radial-gradient(
-    120% 80% at 0% 0%,
-    oklch(42% 0.1 145 / 0.1),
-    transparent 60%
-  );
-  --body-grain:
-    radial-gradient(
-      1100px 500px at 90% -10%,
-      oklch(80% 0.08 80 / 0.35),
-      transparent 60%
-    ),
-    radial-gradient(
-      900px 500px at -5% 110%,
-      oklch(85% 0.06 145 / 0.25),
-      transparent 60%
-    );
-
-  --c1: oklch(52% 0.14 145);
-  --c2: oklch(64% 0.16 70);
-  --c3: oklch(58% 0.16 38);
-  --c4: oklch(48% 0.1 175);
-  --c5: oklch(62% 0.1 100);
-  --c6: oklch(54% 0.18 20);
-  --c7: oklch(48% 0.1 280);
-  --c8: oklch(56% 0.08 50);
+  --warn:     var(--amber-deep);
+  --danger:   var(--rose-hip);
+  --card-glow:  radial-gradient(120% 80% at 0% 0%, oklch(42% 0.10 145 / .10), transparent 60%);
+  --body-grain: radial-gradient(1100px 500px at 90% -10%, oklch(80% 0.08 80 / .35), transparent 60%),
+                radial-gradient(900px  500px at -5% 110%, oklch(85% 0.06 145 / .25), transparent 60%);
+  --c1: oklch(52% 0.14 145); --c2: oklch(64% 0.16 70);  --c3: oklch(58% 0.16 38);
+  --c4: oklch(48% 0.10 175); --c5: oklch(62% 0.10 100); --c6: oklch(54% 0.18 20);
+  --c7: oklch(48% 0.10 280); --c8: oklch(56% 0.08 50);
 }

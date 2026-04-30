@@ -27,7 +27,7 @@ type dashPayload struct {
 	ByProject     map[string]int `json:"by_project"`
 	ByTool        map[string]int `json:"by_tool"`
 	Languages     map[string]int `json:"languages"`
-	Heatmap       []hourBucket   `json:"heatmap"`     // 7×24 grid for week, 1×48 (30-min) for today
+	Heatmap       []hourBucket   `json:"heatmap"` // 7×24 grid for week, 1×48 (30-min) for today
 	Timeline      []tlBlock      `json:"timeline"`
 	StreakDays    int            `json:"streak_days"`
 	TopRepo       string         `json:"top_repo"`
@@ -68,7 +68,7 @@ func buildDashPayload(period string, blocks []Block) dashPayload {
 		Machine:   pl.Machine,
 		OS:        pl.OS,
 	}
-	repoMin    := map[string]int{}
+	repoMin := map[string]int{}
 	repoBranch := map[string]string{}
 	for _, b := range blocks {
 		p.TotalFocusMin += b.FocusedMin
@@ -180,61 +180,7 @@ func streak(blocks []Block) int {
 	return streak
 }
 
-// jsBundleOrder is the concatenation order for the inline JS bundle.
-// ES module import/export syntax is stripped so the result runs as a
-// plain script — no type="module", no file:// CORS restrictions.
-var jsBundleOrder = []string{
-	"static/js/utils.js",
-	"static/js/data.js",
-	"static/js/theme.js",
-	"static/js/components/header.js",
-	"static/js/components/hero.js",
-	"static/js/components/heatmap.js",
-	"static/js/components/insights.js",
-	"static/js/components/donut.js",
-	"static/js/components/languages.js",
-	"static/js/components/hours.js",
-	"static/js/components/streak.js",
-	"static/js/components/timeline.js",
-	"static/js/components/summary.js",
-	"static/js/components/week.js",
-	"static/js/app.js",
-}
-
-// bundleJS reads each file in jsBundleOrder, strips ES module
-// import/export keywords, and returns one concatenated JS string.
-func bundleJS() (string, error) {
-	var b strings.Builder
-	for _, path := range jsBundleOrder {
-		raw, err := staticFiles.ReadFile(path)
-		if err != nil {
-			return "", fmt.Errorf("bundle %s: %w", path, err)
-		}
-		fmt.Fprintf(&b, "// ── %s ──\n", filepath.Base(path))
-		for _, line := range strings.Split(string(raw), "\n") {
-			trimmed := strings.TrimSpace(line)
-			// Drop import lines: import { ... } from '...'
-			if strings.HasPrefix(trimmed, "import ") && strings.Contains(trimmed, " from ") {
-				continue
-			}
-			// Strip leading export/export default keyword
-			out := line
-			for _, kw := range []string{"export default ", "export "} {
-				if strings.HasPrefix(trimmed, kw) {
-					idx := strings.Index(line, kw)
-					out = line[:idx] + line[idx+len(kw):]
-					break
-				}
-			}
-			b.WriteString(out)
-			b.WriteByte('\n')
-		}
-		b.WriteByte('\n')
-	}
-	return b.String(), nil
-}
-
-// RenderDashboard writes a self-contained HTML file. aiRecap is optional;
+// RenderDashboard writes the static dashboard HTML. aiRecap is optional;
 // pass "" to skip the aggregate AI block in the UI.
 func RenderDashboard(blocks []Block, period, aiRecap, outPath string) error {
 	data := buildDashPayload(period, blocks)
@@ -250,16 +196,6 @@ func RenderDashboard(blocks []Block, period, aiRecap, outPath string) error {
 		return err
 	}
 	html := strings.Replace(string(tmpl), "__FLOWD_DATA__", string(js), 1)
-
-	// Bundle JS and inline it — avoids file:// CORS block on ES modules.
-	bundled, err := bundleJS()
-	if err != nil {
-		return err
-	}
-	html = strings.Replace(html,
-		`<script type="module" src="js/app.js"></script>`,
-		"<script>\n"+bundled+"\n</script>",
-		1)
 
 	outDir := filepath.Dir(outPath)
 	if err := os.MkdirAll(outDir, 0750); err != nil {
@@ -294,4 +230,3 @@ func OpenInBrowser(path string) error {
 	}
 	return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
 }
-
