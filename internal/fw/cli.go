@@ -34,6 +34,7 @@ func Run() {
 	root.AddCommand(
 		cmdInit(), cmdStart(), cmdStop(), cmdStatus(),
 		cmdSummary(), cmdReport(), cmdDashboard(), cmdSetupTmux(),
+		cmdUpdate(),
 	)
 	if err := root.Execute(); err != nil {
 		os.Exit(1)
