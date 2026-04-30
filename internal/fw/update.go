@@ -85,16 +85,14 @@ func cmdUpdate() *cobra.Command {
 			// Replace the binary — same as `cp newBin exe`.
 			// Falls back to sudo only if the user doesn't own the file at all.
 			if err := replaceBinary(newBin, exe); err != nil {
-				fallback := filepath.Join(os.TempDir(), "fw-new")
-				_ = copyFile(newBin, fallback, 0755)
+				// newBin is still in tmpDir (defer hasn't fired) — sudo cp it directly.
 				fmt.Printf("\n%s is not writable — running sudo cp\n", exe)
-				sudo := exec.CommandContext(ctx, "sudo", "cp", fallback, exe)
+				sudo := exec.CommandContext(ctx, "sudo", "cp", newBin, exe)
 				sudo.Stdin = os.Stdin
 				sudo.Stdout = os.Stdout
 				sudo.Stderr = os.Stderr
-				defer os.Remove(fallback)
 				if sudoErr := sudo.Run(); sudoErr != nil {
-					fmt.Printf("sudo failed: %v\nrun manually:\n  sudo cp %s %s\n", sudoErr, fallback, exe)
+					fmt.Printf("sudo failed: %v\nrun manually:\n  sudo cp %s %s\n", sudoErr, newBin, exe)
 					return nil
 				}
 			}
