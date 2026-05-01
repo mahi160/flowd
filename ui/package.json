@@ -1,0 +1,29 @@
+{
+  "name": "ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vp dev",
+    "build": "vp build && mv ../internal/fw/static/index.html ../internal/fw/static/dashboard.html",
+    "preview": "vp preview",
+    "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.0.0",
+    "@tailwindcss/vite": "^4.2.4",
+    "@tsconfig/svelte": "^5.0.8",
+    "@types/node": "^24.12.2",
+    "svelte": "^5.55.4",
+    "svelte-check": "^4.4.6",
+    "tailwindcss": "^4.2.4",
+    "typescript": "~6.0.2",
+    "vite": "catalog:",
+    "vite-plugin-singlefile": "^2.3.3",
+    "vite-plus": "catalog:"
+  },
+  "packageManager": "pnpm@10.33.2",
+  "dependencies": {
+    "chart.js": "^4.5.1"
+  }
+}

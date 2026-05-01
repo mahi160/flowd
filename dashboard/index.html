@@ -12,7 +12,8 @@
         try {
           const saved = localStorage.getItem("fw-theme") || "system";
           const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-          document.documentElement.dataset.theme = saved === "system" ? (dark ? "dark" : "light") : saved;
+          document.documentElement.dataset.theme =
+            saved === "system" ? (dark ? "dark" : "light") : saved;
         } catch {
           document.documentElement.dataset.theme = "dark";
         }
