@@ -1,27 +1,35 @@
 <script lang="ts">
   import type { ParsedData } from "../types";
 
-  export let data: ParsedData;
+  interface Props {
+    data: ParsedData;
+  }
+  let { data }: Props = $props();
 
   const HOUR_LABELS = ["8a", "10a", "12p", "2p", "4p", "6p", "8p"];
+  const LEGEND_STEPS = [0.1, 0.35, 0.6, 0.85, 1];
 
-  $: cells = Array.from({ length: 60 }, (_, i) => {
-    const hour = 8 + Math.floor((i * 12) / 60);
-    const v = data.hourly[Math.min(23, hour)] || 0;
-    const noise = ((i * 13) % 7) / 6;
-    const intensity = Math.max(0, Math.min(1, (v / 45) * (0.5 + noise * 0.6)));
-    return {
-      intensity,
-      title: `~${hour}:00 — ≈${Math.round(intensity * 30)}m`,
-    };
-  });
-
-  $: peakIdx = cells.reduce(
-    (a, c, i) => (c.intensity > cells[a].intensity ? i : a),
-    0,
+  let cells = $derived(
+    Array.from({ length: 60 }, (_, i) => {
+      const hour = 8 + Math.floor((i * 12) / 60);
+      const v = data.hourly[Math.min(23, hour)] ?? 0;
+      const noise = ((i * 13) % 7) / 6;
+      const intensity = Math.max(
+        0,
+        Math.min(1, (v / 45) * (0.5 + noise * 0.6)),
+      );
+      return {
+        intensity,
+        title: `~${hour}:00 — ≈${Math.round(intensity * 30)}m`,
+      };
+    }),
   );
-  $: peakHour = 8 + Math.floor((peakIdx * 12) / 60);
-  $: hasPeak = cells[peakIdx]?.intensity > 0;
+
+  let peakIdx = $derived(
+    cells.reduce((a, c, i) => (c.intensity > cells[a].intensity ? i : a), 0),
+  );
+  let peakHour = $derived(8 + Math.floor((peakIdx * 12) / 60));
+  let hasPeak = $derived(cells[peakIdx]?.intensity > 0);
 </script>
 
 <section
@@ -50,9 +58,10 @@
   >
     {#each cells as cell}
       <span
-        class="rounded-sm cursor-default hover:scale-125 hover:z-10 relative transition-transform"
-        class:bg-slate-100={cell.intensity === 0}
-        class:dark:bg-slate-700={cell.intensity === 0}
+        class="rounded-sm cursor-default hover:scale-125 hover:z-10 relative transition-transform {cell.intensity ===
+        0
+          ? 'bg-slate-100 dark:bg-slate-700'
+          : ''}"
         style={cell.intensity > 0
           ? `background: rgba(16,185,129,${0.15 + cell.intensity * 0.85})`
           : undefined}
@@ -66,7 +75,7 @@
   >
     <span class="flex items-center gap-1">
       less
-      {#each [0.1, 0.35, 0.6, 0.85, 1] as i}
+      {#each LEGEND_STEPS as i}
         <span
           class="w-3 h-3 rounded-sm inline-block"
           style="background: rgba(16,185,129,{i})"

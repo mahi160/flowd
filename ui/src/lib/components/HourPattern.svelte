@@ -1,21 +1,21 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
   import type { ParsedData } from '../types';
   import { fmtHour } from '../format';
   import { CHART_PRIMARY } from '../palette';
+  import { barChartOptions } from '../chartConfig';
 
-  export let data: ParsedData;
+  interface Props { data: ParsedData }
+  let { data }: Props = $props();
 
   let canvas: HTMLCanvasElement;
-  let chart: Chart | undefined;
 
-  $: peak = data.hourly.indexOf(Math.max(...data.hourly));
-  $: first = data.hourly.findIndex(v => v > 0);
-  $: last = data.hourly.reduce((a, v, i) => (v > 0 ? i : a), -1);
+  let peak  = $derived(data.hourly.indexOf(Math.max(...data.hourly)));
+  let first = $derived(data.hourly.findIndex(v => v > 0));
+  let last  = $derived(data.hourly.reduce((a, v, i) => (v > 0 ? i : a), -1));
 
-  onMount(() => {
-    chart = new Chart(canvas, {
+  $effect(() => {
+    const chart = new Chart(canvas, {
       type: 'bar',
       data: {
         labels: data.hourly.map((_, i) => i % 4 === 0 ? fmtHour(i) : ''),
@@ -26,29 +26,10 @@
           borderSkipped: false,
         }],
       },
-      options: {
-        animation: false,
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: {
-            callbacks: { label: ctx => ` ${fmtHour(ctx.dataIndex)}: ${ctx.parsed.y}m` },
-          },
-        },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: { color: '#94a3b8', font: { size: 10, family: 'inherit' }, maxRotation: 0 },
-            border: { display: false },
-          },
-          y: { display: false },
-        },
-      },
+      options: barChartOptions(ctx => ` ${fmtHour(ctx.dataIndex)}: ${ctx.parsed.y}m`),
     });
+    return () => chart.destroy();
   });
-
-  onDestroy(() => chart?.destroy());
 </script>
 
 <section class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
@@ -62,21 +43,13 @@
   </div>
 
   <div class="flex gap-[18px] pt-2.5 mt-2 border-t border-slate-100 dark:border-slate-700">
-    <div class="flex flex-col gap-0.5">
-      <span class="font-mono text-[10.5px] tracking-widest uppercase text-slate-400">peak</span>
-      <span class="tabular-nums text-[13px] text-slate-700 dark:text-slate-200">{fmtHour(peak)}</span>
-    </div>
-    {#if first >= 0}
-      <div class="flex flex-col gap-0.5">
-        <span class="font-mono text-[10.5px] tracking-widest uppercase text-slate-400">start</span>
-        <span class="tabular-nums text-[13px] text-slate-700 dark:text-slate-200">{fmtHour(first)}</span>
-      </div>
-    {/if}
-    {#if last >= 0}
-      <div class="flex flex-col gap-0.5">
-        <span class="font-mono text-[10.5px] tracking-widest uppercase text-slate-400">end</span>
-        <span class="tabular-nums text-[13px] text-slate-700 dark:text-slate-200">{fmtHour(last)}</span>
-      </div>
-    {/if}
+    {#each [['peak', peak], ['start', first], ['end', last]] as [label, h]}
+      {#if (h as number) >= 0}
+        <div class="flex flex-col gap-0.5">
+          <span class="font-mono text-[10.5px] tracking-widest uppercase text-slate-400">{label}</span>
+          <span class="tabular-nums text-[13px] text-slate-700 dark:text-slate-200">{fmtHour(h as number)}</span>
+        </div>
+      {/if}
+    {/each}
   </div>
 </section>

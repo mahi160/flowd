@@ -1,19 +1,23 @@
-import type { RawPayload, ParsedData, Item } from "./types";
-import { PALETTE } from "./palette";
+import type { RawPayload, ParsedData, Item } from './types';
+import { PALETTE } from './palette';
 
 const list = (obj?: Record<string, number>): Item[] =>
-  Object.entries(obj || {})
+  Object.entries(obj ?? {})
     .filter(([, v]) => v > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([name, min], i) => ({
-      name,
-      min,
-      color: PALETTE[i % PALETTE.length],
-    }));
+    .map(([name, min], i) => ({ name, min, color: PALETTE[i % PALETTE.length] }));
 
-export function transform(raw: Partial<RawPayload> = {}): ParsedData {
-  const heat = raw.heatmap || [];
-  const isToday = raw.period !== "week";
+function cellValue(i: number, streak: number): number {
+  const ago = 29 - i;
+  if (ago === 0) return 4;                                        // today
+  if (ago < streak) return Math.min(4, ((i * 7 + 3) % 3) + 2);  // active streak
+  if (ago < streak + 8 && (i * 13) % 4 === 0) return 1;         // fading tail
+  return 0;
+}
+
+export function transform(raw: RawPayload = {}): ParsedData {
+  const heat = raw.heatmap ?? [];
+  const isToday = raw.period !== 'week';
   const hourly = Array<number>(24).fill(0);
   const byDay: Record<string, number> = {};
   const byDayHour: Record<string, number[]> = {};
@@ -21,64 +25,51 @@ export function transform(raw: Partial<RawPayload> = {}): ParsedData {
   for (const c of heat) {
     const h = isToday ? Math.floor(c.hour / 2) : c.hour;
     if (h >= 0 && h < 24) hourly[h] += c.minute;
-    byDay[c.day] = (byDay[c.day] || 0) + c.minute;
+    byDay[c.day] = (byDay[c.day] ?? 0) + c.minute;
     byDayHour[c.day] ??= Array<number>(24).fill(0);
     if (c.hour >= 0 && c.hour < 24) byDayHour[c.day][c.hour] += c.minute;
   }
 
-  const streak = raw.streak_days || 0;
+  const streak = raw.streak_days ?? 0;
 
   return {
-    period: raw.period === "week" ? "week" : "today",
-    generated: raw.generated || "",
-    machine: raw.machine || "—",
-    os: raw.os || "",
-    topRepo: { name: raw.top_repo || "—", branch: raw.top_branch || "" },
+    period: raw.period === 'week' ? 'week' : 'today',
+    generated: raw.generated ?? '',
+    machine: raw.machine || '—',
+    os: raw.os ?? '',
+    topRepo: { name: raw.top_repo || '—', branch: raw.top_branch ?? '' },
     focus: {
-      totalMin: raw.total_focus_min || 0,
-      blocks: raw.total_blocks || 0,
-      switches: raw.total_switches || 0,
+      totalMin: raw.total_focus_min ?? 0,
+      blocks:   raw.total_blocks   ?? 0,
+      switches: raw.total_switches ?? 0,
     },
     code: {
-      files: raw.files_changed || 0,
-      added: raw.lines_added || 0,
-      removed: raw.lines_removed || 0,
+      files:   raw.files_changed ?? 0,
+      added:   raw.lines_added   ?? 0,
+      removed: raw.lines_removed ?? 0,
     },
-    byProject: list(raw.by_project),
-    byCommand: list(raw.by_tool),
+    byProject:  list(raw.by_project),
+    byCommand:  list(raw.by_tool),
     byLanguage: list(raw.languages),
     hourly,
     weekHourlyByDay: byDayHour,
     weekDays: Object.entries(byDay).map(([label, min]) => {
-      const [day, date = ""] = label.split(" ");
+      const [day, date = ''] = label.split(' ');
       return { day, date, min };
     }),
     streakDays: streak,
-    streakCells: Array.from({ length: 30 }, (_, i) => {
-      const ago = 29 - i;
-      return {
-        d: i,
-        v:
-          ago < streak
-            ? ago === 0
-              ? 4
-              : Math.min(4, ((i * 7 + 3) % 3) + 2)
-            : ago < streak + 8 && (i * 13) % 4 === 0
-              ? 1
-              : 0,
-      };
-    }),
-    timeline: (raw.timeline || []).map((b) => ({
-      from: b.start,
-      to: b.end,
-      project: b.repo || null,
-      branch: b.branch || null,
-      focus: b.focus || 0,
-      switches: b.switches || 0,
-      ai: b.ai || null,
+    streakCells: Array.from({ length: 30 }, (_, i) => ({ d: i, v: cellValue(i, streak) })),
+    timeline: (raw.timeline ?? []).map(b => ({
+      from:     b.start,
+      to:       b.end,
+      project:  b.repo    || null,
+      branch:   b.branch  || null,
+      focus:    b.focus   ?? 0,
+      switches: b.switches ?? 0,
+      ai:       b.ai      ?? null,
     })),
-    aiRecap: raw.ai_recap || null,
-    aiPerBlock: raw.ai_per_block || 0,
-    hasData: (raw.total_blocks || 0) > 0,
+    aiRecap:    raw.ai_recap    ?? null,
+    aiPerBlock: raw.ai_per_block ?? 0,
+    hasData: (raw.total_blocks ?? 0) > 0,
   };
 }

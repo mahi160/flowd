@@ -2,11 +2,12 @@
   import type { ParsedData } from '../types';
   import { fmtHM } from '../format';
 
-  export let data: ParsedData;
+  interface Props { data: ParsedData }
+  let { data }: Props = $props();
 
-  $: langs = data.byLanguage.slice(0, 8);
-  $: top = langs[0]?.min || 1;
-  $: total = langs.reduce((n, l) => n + l.min, 0);
+  let langs = $derived(data.byLanguage.slice(0, 8));
+  let top   = $derived(langs[0]?.min ?? 1);
+  let total = $derived(langs.reduce((n, l) => n + l.min, 0));
 </script>
 
 <section class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
@@ -18,14 +19,12 @@
   {#if !langs.length}
     <p class="text-[12.5px] text-slate-400">No language data — inferred from git diffs.</p>
   {:else}
-    <!-- Stacked bar -->
     <div class="flex h-[7px] rounded-full overflow-hidden border border-slate-200 dark:border-slate-600 mb-3">
       {#each langs as l}
         <span class="block h-full" style="flex:{l.min}; background:{l.color}" title="{l.name} · {l.min}m"></span>
       {/each}
     </div>
 
-    <!-- List -->
     <ul class="flex flex-col gap-2">
       {#each langs as l}
         <li class="grid items-center gap-2.5" style="grid-template-columns: 10px 90px 1fr auto">

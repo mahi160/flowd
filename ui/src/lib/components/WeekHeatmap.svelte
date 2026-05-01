@@ -1,10 +1,13 @@
 <script lang="ts">
   import type { ParsedData } from '../types';
 
-  export let data: ParsedData;
+  interface Props { data: ParsedData }
+  let { data }: Props = $props();
 
-  $: days = Object.entries(data.weekHourlyByDay);
-  $: max = Math.max(1, ...days.flatMap(([, h]) => h));
+  const LEGEND_STEPS = [0.1, 0.35, 0.6, 0.85, 1];
+
+  let days = $derived(Object.entries(data.weekHourlyByDay));
+  let max  = $derived(Math.max(1, ...days.flatMap(([, h]) => h)));
 </script>
 
 <section class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
@@ -20,9 +23,7 @@
         <div class="grid gap-[3px] flex-1 h-[16px]" style="grid-template-columns: repeat(24, 1fr)">
           {#each hrs as v, h}
             <span
-              class="rounded-sm cursor-default"
-              class:bg-slate-100={v === 0}
-              class:dark:bg-slate-700={v === 0}
+              class="rounded-sm cursor-default {v === 0 ? 'bg-slate-100 dark:bg-slate-700' : ''}"
               style={v > 0 ? `background: rgba(16,185,129,${0.15 + (v / max) * 0.85})` : undefined}
               title="{day} {String(h).padStart(2, '0')}:00 · {v}m"
             ></span>
@@ -35,7 +36,7 @@
   <div class="flex justify-between items-center mt-2 text-[10.5px] font-mono text-slate-400">
     <span class="flex items-center gap-1">
       less
-      {#each [0.1, 0.35, 0.6, 0.85, 1] as i}
+      {#each LEGEND_STEPS as i}
         <span class="w-3 h-3 rounded-sm inline-block" style="background: rgba(16,185,129,{i})"></span>
       {/each}
       more

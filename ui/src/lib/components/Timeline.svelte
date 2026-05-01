@@ -2,10 +2,11 @@
   import type { ParsedData } from '../types';
   import BranchIcon from '../icons/BranchIcon.svelte';
 
-  export let data: ParsedData;
+  interface Props { data: ParsedData }
+  let { data }: Props = $props();
 
-  $: entries = [...data.timeline].reverse();
-  $: maxFocus = Math.max(1, ...entries.map(e => e.focus));
+  let entries  = $derived([...data.timeline].reverse());
+  let maxFocus = $derived(Math.max(1, ...entries.map(e => e.focus)));
 </script>
 
 <section class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
@@ -17,29 +18,24 @@
   {#if !entries.length}
     <p class="text-[12.5px] text-slate-400">No blocks recorded yet.</p>
   {:else}
-    <ol class="flex flex-col max-h-[420px] overflow-y-auto pr-1 -mr-1 scrollbar-thin">
+    <ol class="flex flex-col max-h-[420px] overflow-y-auto pr-1 -mr-1">
       {#each entries as entry, i}
-        <li class="grid gap-3 py-2.5" style="grid-template-columns: 90px 16px 1fr" class:opacity-40={!entry.project}>
-          <!-- Time -->
+        {@const dotClass = entry.project
+          ? 'bg-primary ring-white dark:ring-slate-800'
+          : 'bg-slate-300 dark:bg-slate-600 ring-slate-200'}
+        <li
+          class="grid gap-3 py-2.5 {!entry.project ? 'opacity-40' : ''}"
+          style="grid-template-columns: 90px 16px 1fr"
+        >
           <span class="font-mono text-[11px] text-slate-400 pt-0.5 tabular-nums">{entry.from} → {entry.to}</span>
 
-          <!-- Rail -->
           <div class="relative">
-            <span
-              class="absolute top-[5px] left-1/2 -translate-x-1/2 w-2 h-2 rounded-full z-10 ring-2"
-              class:bg-primary={!!entry.project}
-              class:ring-white={!!entry.project}
-              class:dark:ring-slate-800={!!entry.project}
-              class:bg-slate-300={!entry.project}
-              class:ring-slate-200={!entry.project}
-              class:dark:bg-slate-600={!entry.project}
-            ></span>
+            <span class="absolute top-[5px] left-1/2 -translate-x-1/2 w-2 h-2 rounded-full z-10 ring-2 {dotClass}"></span>
             {#if i < entries.length - 1}
               <span class="absolute left-1/2 top-[14px] bottom-[-10px] w-px bg-slate-200 dark:bg-slate-700 -translate-x-1/2"></span>
             {/if}
           </div>
 
-          <!-- Body -->
           <div class="pb-1 min-h-[26px]">
             {#if !entry.project}
               <span class="text-[13px] text-slate-400">— idle</span>

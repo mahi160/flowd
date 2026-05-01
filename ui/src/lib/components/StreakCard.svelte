@@ -1,10 +1,18 @@
 <script lang="ts">
   import type { ParsedData } from '../types';
 
-  export let data: ParsedData;
+  interface Props { data: ParsedData }
+  let { data }: Props = $props();
 
-  $: s = data.streakDays;
-  $: sub = s === 0 ? 'start coding today' : s >= 14 ? 'on fire 🔥' : s >= 7 ? 'keep it up 🌿' : 'building momentum';
+  function streakSub(s: number): string {
+    if (s === 0)   return 'start coding today';
+    if (s >= 14)   return 'on fire 🔥';
+    if (s >= 7)    return 'keep it up 🌿';
+    return 'building momentum';
+  }
+
+  let s   = $derived(data.streakDays);
+  let sub = $derived(streakSub(s));
 </script>
 
 <section class="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
@@ -23,18 +31,16 @@
 
   <div class="grid grid-cols-10 gap-1 mb-2">
     {#each data.streakCells as cell}
+      {@const active = cell.v > 0}
       <span
-        class="rounded h-[14px] cursor-default transition-transform hover:scale-110 {cell.d === 29 ? 'ring-2 ring-offset-1 ring-primary/50' : ''}"
-        class:bg-slate-100={cell.v === 0}
-        class:dark:bg-slate-700={cell.v === 0}
-        style={cell.v > 0 ? `background: rgba(16,185,129,${0.15 + (cell.v / 4) * 0.85})` : undefined}
+        class="rounded h-[14px] cursor-default transition-transform hover:scale-110 {cell.d === 29 ? 'ring-2 ring-offset-1 ring-primary/50' : ''} {active ? '' : 'bg-slate-100 dark:bg-slate-700'}"
+        style={active ? `background: rgba(16,185,129,${0.15 + (cell.v / 4) * 0.85})` : undefined}
         title={cell.d === 29 ? 'today' : `${29 - cell.d}d ago`}
       ></span>
     {/each}
   </div>
 
   <div class="flex justify-between font-mono text-[10px] text-slate-400">
-    <span>30d ago</span>
-    <span>today</span>
+    <span>30d ago</span><span>today</span>
   </div>
 </section>

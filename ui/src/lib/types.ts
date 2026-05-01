@@ -1,4 +1,4 @@
-// ── Raw payload from Go (snake_case JSON) ────────────────────────────────────
+// ── Raw payload from Go (snake_case JSON, all fields optional via omitempty) ──
 
 export type HourBucket = {
   day: string;    // "Mon 22" or "Today"
@@ -17,26 +17,26 @@ export type TlBlock = {
 };
 
 export type RawPayload = {
-  period: 'today' | 'week' | string;
-  generated: string;
-  total_focus_min: number;
-  total_blocks: number;
-  total_switches: number;
-  files_changed: number;
-  lines_added: number;
-  lines_removed: number;
-  by_project: Record<string, number>;
-  by_tool: Record<string, number>;
-  languages: Record<string, number>;
-  heatmap: HourBucket[];
-  timeline: TlBlock[];
-  streak_days: number;
-  top_repo: string;
-  top_branch: string;
-  ai_recap: string;
-  ai_per_block: number;
-  machine: string;
-  os: string;
+  period?: 'today' | 'week' | string;
+  generated?: string;
+  total_focus_min?: number;
+  total_blocks?: number;
+  total_switches?: number;
+  files_changed?: number;
+  lines_added?: number;
+  lines_removed?: number;
+  by_project?: Record<string, number>;
+  by_tool?: Record<string, number>;
+  languages?: Record<string, number>;
+  heatmap?: HourBucket[];
+  timeline?: TlBlock[];
+  streak_days?: number;
+  top_repo?: string;
+  top_branch?: string;
+  ai_recap?: string;
+  ai_per_block?: number;
+  machine?: string;
+  os?: string;
 };
 
 // ── Transformed / parsed types ────────────────────────────────────────────────
@@ -67,8 +67,8 @@ export type ParsedData = {
   byProject: Item[];
   byCommand: Item[];
   byLanguage: Item[];
-  hourly: number[];                              // 24 values (hour 0–23)
-  weekHourlyByDay: Record<string, number[]>;     // day label → 24 values
+  hourly: number[];
+  weekHourlyByDay: Record<string, number[]>;
   weekDays: WeekDay[];
   streakDays: number;
   streakCells: StreakCell[];
