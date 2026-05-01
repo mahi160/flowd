@@ -2,18 +2,20 @@ name: release
 
 on:
   push:
-    branches: [main]
+    branches: [prod]
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
-  group: release-main
+  group: release-prod
   cancel-in-progress: false
 
 jobs:
-  release:
-    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') && !contains(github.event.head_commit.message, '[skip release]') }}
+  # ── 1. Build dashboard artifact & run tests ──────────────────────────────
+  prepare:
+    if: ${{ !contains(github.event.head_commit.message, '[skip ci]') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -44,54 +46,67 @@ jobs:
           if ! git diff --quiet -- internal/fw/static/dashboard.html; then
             git add internal/fw/static/dashboard.html
             git commit -m "build: update dashboard artifact [skip ci]"
-            git push origin HEAD:main
+            git push origin HEAD:prod
           fi
 
       - name: Test
         run: go test ./...
 
-      - name: Compute next version
-        id: version
-        shell: bash
+  # ── 2. Create / update Release-Please PR; publish release when PR merges ─
+  release-please:
+    needs: prepare
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name:        ${{ steps.release.outputs.tag_name }}
+      version:         ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ── 3. Build multi-platform binaries and attach to the GitHub Release ────
+  build:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - name: Checkout tagged release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build binary (${{ matrix.goos }}/${{ matrix.goarch }})
+        env:
+          GOOS:   ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
         run: |
-          current=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -1)
-          if [[ -z "$current" ]]; then
-            echo "No semver tag found" >&2
-            exit 1
-          fi
+          go build \
+            -ldflags "-s -w -X github.com/mahi160/flowd/internal/fw.Version=${{ needs.release-please.outputs.version }}" \
+            -o fw-${{ matrix.goos }}-${{ matrix.goarch }} \
+            ./cmd/fw
 
-          version="${current#v}"
-          IFS=. read -r major minor patch <<< "$version"
-
-          msg='${{ github.event.head_commit.message }}'
-          if [[ "$msg" == *"[release:major]"* ]]; then
-            major=$((major + 1)); minor=0; patch=0
-          elif [[ "$msg" == *"[release:minor]"* ]]; then
-            minor=$((minor + 1)); patch=0
-          else
-            patch=$((patch + 1))
-          fi
-
-          next="v${major}.${minor}.${patch}"
-          if git rev-parse "$next" >/dev/null 2>&1; then
-            echo "Tag $next already exists" >&2
-            exit 1
-          fi
-          echo "current=$current" >> "$GITHUB_OUTPUT"
-          echo "next=$next" >> "$GITHUB_OUTPUT"
-          echo "version=${next#v}" >> "$GITHUB_OUTPUT"
-          echo "Current: $current"
-          echo "Next:    $next"
-
-      - name: Build release binary smoke test
-        run: go build -ldflags "-X github.com/mahi160/flowd/internal/fw.Version=${{ steps.version.outputs.version }}" -o fw ./cmd/fw
-
-      - name: Tag release
+      - name: Upload binary to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git tag "${{ steps.version.outputs.next }}"
-          git push origin "${{ steps.version.outputs.next }}"
-
-      - name: Summary
-        run: |
-          echo "Released ${{ steps.version.outputs.next }}"
-          echo "Users can now run: fw update"
+          gh release upload ${{ needs.release-please.outputs.tag_name }} \
+            fw-${{ matrix.goos }}-${{ matrix.goarch }} --clobber
