@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
   pull-requests: write
 
 concurrency:
@@ -52,24 +53,37 @@ jobs:
       - name: Test
         run: go test ./...
 
-  # ── 2. Create / update Release-Please PR; publish release when PR merges ─
-  release-please:
+  # ── 2. Automatically generate changelog, tag, and publish release ────────
+  semantic-release:
     needs: prepare
     runs-on: ubuntu-latest
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      version: ${{ steps.release.outputs.version }}
+      release_created: ${{ steps.semantic.outputs.new_release_published }}
+      tag_name: ${{ steps.semantic.outputs.new_release_git_tag }}
+      version: ${{ steps.semantic.outputs.new_release_version }}
     steps:
-      - uses: googleapis/release-please-action@v5
-        id: release
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
-          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run Semantic Release
+        id: semantic
+        uses: cycjimmy/semantic-release-action@v4
+        with:
+          semantic_version: 23
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ── 3. Build multi-platform binaries and attach to the GitHub Release ────
   build:
-    needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    needs: semantic-release
+    if: ${{ needs.semantic-release.outputs.release_created == 'true' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -86,7 +100,7 @@ jobs:
       - name: Checkout tagged release
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.release-please.outputs.tag_name }}
+          ref: ${{ needs.semantic-release.outputs.tag_name }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -100,7 +114,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           go build \
-            -ldflags "-s -w -X github.com/mahi160/flowd/internal/fw.Version=${{ needs.release-please.outputs.version }}" \
+            -ldflags "-s -w -X github.com/mahi160/flowd/internal/fw.Version=${{ needs.semantic-release.outputs.version }}" \
             -o fw-${{ matrix.goos }}-${{ matrix.goarch }} \
             ./cmd/fw
 
@@ -108,5 +122,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload ${{ needs.release-please.outputs.tag_name }} \
+          gh release upload ${{ needs.semantic-release.outputs.tag_name }} \
             fw-${{ matrix.goos }}-${{ matrix.goarch }} --clobber
