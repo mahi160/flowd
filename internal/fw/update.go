@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -55,44 +57,37 @@ func cmdUpdate() *cobra.Command {
 				return fmt.Errorf("eval symlinks: %w", err)
 			}
 
-			// Clone the tagged release into a temp dir.
-			tmpDir, err := os.MkdirTemp("", "fw-update-*")
+			// Download the pre-built binary for this platform from GitHub Releases.
+			assetName := fmt.Sprintf("fw-%s-%s", runtime.GOOS, runtime.GOARCH)
+			downloadURL := fmt.Sprintf("%s/releases/download/%s/%s", repoURL, latest, assetName)
+			fmt.Printf("downloading %s...\n", downloadURL)
+
+			tmpFile, err := os.CreateTemp("", "fw-update-*")
 			if err != nil {
 				return err
 			}
-			defer os.RemoveAll(tmpDir)
+			tmpPath := tmpFile.Name()
+			defer os.Remove(tmpPath)
 
-			fmt.Printf("cloning %s...\n", latest)
-			if err := runGitCmd(ctx, "", "clone", "-c", "advice.detachedHead=false",
-				"--depth=1", "--branch", latest, repoURL, tmpDir); err != nil {
-				return fmt.Errorf("git clone: %w", err)
+			if err := downloadFile(ctx, downloadURL, tmpFile); err != nil {
+				tmpFile.Close()
+				return fmt.Errorf("download binary: %w", err)
+			}
+			tmpFile.Close()
+
+			if err := os.Chmod(tmpPath, 0755); err != nil {
+				return fmt.Errorf("chmod: %w", err)
 			}
 
-			// Build with the version injected.
-			newBin := filepath.Join(tmpDir, "fw")
-			ver := strings.TrimPrefix(latest, "v")
-			ldflags := fmt.Sprintf("-X github.com/mahi160/flowd/internal/fw.Version=%s", ver)
-
-			fmt.Println("building...")
-			c := exec.CommandContext(ctx, "go", "build", "-ldflags", ldflags, "-o", newBin, "./cmd/fw")
-			c.Dir = tmpDir
-			c.Stdout = os.Stdout
-			c.Stderr = os.Stderr
-			if err := c.Run(); err != nil {
-				return fmt.Errorf("go build: %w", err)
-			}
-
-			// Replace the binary — same as `cp newBin exe`.
-			// Falls back to sudo only if the user doesn't own the file at all.
-			if err := replaceBinary(newBin, exe); err != nil {
-				// newBin is still in tmpDir (defer hasn't fired) — sudo cp it directly.
+			// Replace the running binary.
+			if err := replaceBinary(tmpPath, exe); err != nil {
 				fmt.Printf("\n%s is not writable — running sudo cp\n", exe)
-				sudo := exec.CommandContext(ctx, "sudo", "cp", newBin, exe)
+				sudo := exec.CommandContext(ctx, "sudo", "cp", tmpPath, exe)
 				sudo.Stdin = os.Stdin
 				sudo.Stdout = os.Stdout
 				sudo.Stderr = os.Stderr
 				if sudoErr := sudo.Run(); sudoErr != nil {
-					fmt.Printf("sudo failed: %v\nrun manually:\n  sudo cp %s %s\n", sudoErr, newBin, exe)
+					fmt.Printf("sudo failed: %v\nrun manually:\n  sudo cp %s %s\n", sudoErr, tmpPath, exe)
 					return nil
 				}
 			}
@@ -101,6 +96,26 @@ func cmdUpdate() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// downloadFile fetches url and streams the body into dst.
+func downloadFile(ctx context.Context, url string, dst *os.File) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("server returned %s for %s", resp.Status, url)
+	}
+
+	_, err = io.Copy(dst, resp.Body)
+	return err
 }
 
 // latestRemoteTag returns the highest semver tag (vX.Y.Z) from the remote.
@@ -153,19 +168,6 @@ func copyFile(src, dst string, perm os.FileMode) error {
 }
 
 // replaceBinary overwrites dst with src, the same way `cp src dst` does.
-// This only requires write permission on dst itself, not on the directory
-// — which is why `make install` (cp) works when the parent dir is root-owned.
 func replaceBinary(src, dst string) error {
 	return copyFile(src, dst, 0755)
-}
-
-// runGitCmd runs git with the given args, optionally in a working directory.
-func runGitCmd(ctx context.Context, dir string, args ...string) error {
-	c := exec.CommandContext(ctx, "git", args...)
-	if dir != "" {
-		c.Dir = dir
-	}
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
-	return c.Run()
 }

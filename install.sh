@@ -4,7 +4,6 @@ set -euo pipefail
 # ── config ────────────────────────────────────────────────────────────────────
 GITHUB_USER="mahi160"
 GITHUB_REPO="flowd"
-BRANCH="main"
 INSTALL_DIR="${FLOWD_INSTALL_DIR:-/usr/local/bin}"
 BINARY="fw"
 # ─────────────────────────────────────────────────────────────────────────────
@@ -24,56 +23,54 @@ ARCH="$(uname -m)"
 info "platform: $OS / $ARCH"
 
 case "$OS" in
-  Darwin|Linux) ;;
+  Linux)  GOOS="linux"  ;;
+  Darwin) GOOS="darwin" ;;
   *) die "unsupported OS: $OS" ;;
 esac
 
-# ── dependencies ──────────────────────────────────────────────────────────────
+case "$ARCH" in
+  x86_64)          GOARCH="amd64" ;;
+  aarch64 | arm64) GOARCH="arm64" ;;
+  *) die "unsupported architecture: $ARCH" ;;
+esac
+
+# ── dependency check ──────────────────────────────────────────────────────────
 check() { command -v "$1" &>/dev/null || die "$1 not found — $2"; }
-check go   "install Go 1.22+: https://go.dev/dl"
 check tmux "install tmux via your package manager"
 
-GO_VER="$(go version | awk '{print $3}' | sed 's/go//')"
-GO_OK=$(awk -v v="$GO_VER" 'BEGIN{split(v,a,"."); print (a[1]>1||(a[1]==1&&a[2]>=22))?"yes":"no"}')
-[ "$GO_OK" = "yes" ] || die "Go 1.22+ required (found $GO_VER)"
-ok "Go $GO_VER"
-
-# ── download zip ──────────────────────────────────────────────────────────────
-ZIP_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/archive/refs/heads/${BRANCH}.zip"
-BUILD_DIR="${TMPDIR:-/tmp}/flowd-build-$$"
-ZIP_PATH="${BUILD_DIR}.zip"
-trap 'rm -rf "$BUILD_DIR" "$ZIP_PATH"' EXIT
-
-info "downloading $ZIP_URL …"
+# ── resolve latest release tag ────────────────────────────────────────────────
+info "resolving latest release..."
 if command -v curl &>/dev/null; then
-  curl -fsSL "$ZIP_URL" -o "$ZIP_PATH"
+  FETCH() { curl -fsSL "$1"; }
 elif command -v wget &>/dev/null; then
-  wget -q "$ZIP_URL" -O "$ZIP_PATH"
+  FETCH() { wget -qO- "$1"; }
 else
   die "curl or wget required"
 fi
+
+API_URL="https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/releases/latest"
+TAG=$(FETCH "$API_URL" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+[[ -n "$TAG" ]] || die "could not determine latest release tag"
+ok "latest release: $TAG"
+
+# ── download binary ───────────────────────────────────────────────────────────
+ASSET_NAME="${BINARY}-${GOOS}-${GOARCH}"
+DOWNLOAD_URL="https://github.com/${GITHUB_USER}/${GITHUB_REPO}/releases/download/${TAG}/${ASSET_NAME}"
+TMP_BIN="$(mktemp)"
+trap 'rm -f "$TMP_BIN"' EXIT
+
+info "downloading $ASSET_NAME..."
+FETCH "$DOWNLOAD_URL" > "$TMP_BIN"
+chmod +x "$TMP_BIN"
 ok "downloaded"
-
-# ── extract ───────────────────────────────────────────────────────────────────
-info "extracting …"
-mkdir -p "$BUILD_DIR"
-unzip -q "$ZIP_PATH" -d "$BUILD_DIR"
-SRC_DIR="${BUILD_DIR}/${GITHUB_REPO}-${BRANCH}"
-ok "extracted"
-
-# ── build ─────────────────────────────────────────────────────────────────────
-info "building …"
-cd "$SRC_DIR"
-go build -ldflags="-s -w" -o "$BINARY" ./cmd/fw
-ok "build complete"
 
 # ── install ───────────────────────────────────────────────────────────────────
 DEST="${INSTALL_DIR}/${BINARY}"
 if [ -w "$INSTALL_DIR" ]; then
-  mv "$BINARY" "$DEST"
+  mv "$TMP_BIN" "$DEST"
 else
   info "need sudo to write to $INSTALL_DIR"
-  sudo mv "$BINARY" "$DEST"
+  sudo mv "$TMP_BIN" "$DEST"
 fi
 ok "installed → $DEST"
 
@@ -87,7 +84,7 @@ fi
 
 # ── done ──────────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${BOLD}done.${RESET}"
+echo -e "${BOLD}done.${RESET} installed ${TAG}"
 echo ""
 if [ -f "${HOME}/.config/flowd/config.yaml" ]; then
   ok "existing config found — skipping init"
