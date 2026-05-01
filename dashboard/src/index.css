@@ -4,7 +4,7 @@
 @import "./theme.css";
 
 @theme {
-  --font-display: "Fraunces", Georgia, serif;
+  --font-display: Georgia, serif;
   --font-sans: "Instrument Sans", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
@@ -26,4 +26,10 @@ body {
   color: var(--color-foreground);
   background-color: var(--color-background);
   transition: background-color 0.2s;
+}
+
+/* Custom ClassNames */
+.summary-widget-badge {
+  --bg: var(--color-accent);
+  @apply px-2 py-1 rounded bg-(--bg)/20 font-mono text-foreground/50 text-[10px] flex gap-1 items-center justify-center w-fit min-w-20 mt-1;
 }
