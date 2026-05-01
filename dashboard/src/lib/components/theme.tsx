@@ -2,7 +2,11 @@ import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "preact/hooks";
 
 export function ThemeToggle() {
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(() =>
+    typeof window !== "undefined"
+      ? window.matchMedia("(prefers-color-scheme: dark)").matches
+      : false,
+  );
   const toggleTheme = () => {
     setDark((prev) => !prev);
   };
