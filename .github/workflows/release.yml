@@ -61,11 +61,10 @@ jobs:
       tag_name: ${{ steps.release.outputs.tag_name }}
       version: ${{ steps.release.outputs.version }}
     steps:
-      # Updated from v4 to v5 to fix the Node 20 deprecation warning
       - uses: googleapis/release-please-action@v5
         id: release
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
 
   # ── 3. Build multi-platform binaries and attach to the GitHub Release ────
   build:
