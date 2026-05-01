@@ -1,6 +1,7 @@
 import { createContext, type ComponentChildren } from "preact";
 import type { IRawPayload } from "./types";
 import { useContext, useEffect, useState } from "preact/hooks";
+import { mockData } from "./mock";
 
 interface DataContextType {
   data: IRawPayload | null;
@@ -17,10 +18,11 @@ export function DataProvider({ children }: { children: ComponentChildren }) {
 
   useEffect(() => {
     try {
-      // Try to get data from window global
       const globalData = (window as any).__FLOWD_DATA__;
       if (globalData) {
         setData(globalData);
+      } else {
+        setData(mockData);
       }
       setLoading(false);
     } catch (err) {
