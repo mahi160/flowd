@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vp dev",
-    "build": "tsc -b && vp build",
+    "build": "tsc -b && vp build && mv ../internal/fw/static/index.html ../internal/fw/static/dashboard.html",
     "preview": "vp preview"
   },
   "dependencies": {

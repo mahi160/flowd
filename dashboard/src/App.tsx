@@ -1,10 +1,13 @@
-import type { Data } from "./types";
-import { Header } from "./components/header";
+import { Header } from "./lib/components/header";
+import { DataProvider } from "./lib/context";
 
-export function App({ data }: { data: Data }) {
+export function App() {
   return (
-    <main>
-      <Header data={data} />
-    </main>
+    <DataProvider>
+      <div className="flex min-h-screen flex-col bg-background">
+        <Header />
+        <main className="flex-1" />
+      </div>
+    </DataProvider>
   );
 }
