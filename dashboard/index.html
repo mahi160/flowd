@@ -11,7 +11,11 @@
     />
     <title>dashboard | flowd</title>
     <script>
-      window.__FLOWD_DATA__ = __FLOWD_PAYLOAD_JSON__;
+      try {
+        window.__FLOWD_DATA__ = __FLOWD_PAYLOAD_JSON__;
+      } catch (e) {
+        window.__FLOWD_DATA__ = null;
+      }
     </script>
   </head>
   <body>
