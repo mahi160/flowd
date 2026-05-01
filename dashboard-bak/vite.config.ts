@@ -1,15 +1,17 @@
-import { defineConfig } from "vite-plus";
+import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
-import { viteSingleFile } from "vite-plugin-singlefile";
 import tailwindcss from "@tailwindcss/vite";
+import { viteSingleFile } from "vite-plugin-singlefile";
 
 export default defineConfig({
-  fmt: {},
-  lint: { options: { typeAware: true, typeCheck: true } },
   plugins: [preact(), tailwindcss(), viteSingleFile()],
-
   build: {
     outDir: "../internal/fw/static",
     emptyOutDir: true,
+    assetsInlineLimit: 100000000,
+    cssCodeSplit: false,
+    rollupOptions: {
+      output: { inlineDynamicImports: true },
+    },
   },
 });

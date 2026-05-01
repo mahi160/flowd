@@ -1,0 +1,19 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build && mv ../internal/fw/static/index.html ../internal/fw/static/dashboard.html",
+    "dev": "vite --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@preact/preset-vite": "^2.10.1",
+    "@tailwindcss/vite": "^4.1.5",
+    "preact": "^10.26.4",
+    "tailwindcss": "^4.1.5",
+    "vite": "^6.3.4",
+    "vite-plugin-singlefile": "^2.2.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}
