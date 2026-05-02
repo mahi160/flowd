@@ -17,6 +17,17 @@ export type RawPayload = {
   top_branch?: string;
   ai_recap?: string;
   ai_per_block?: number;
+  ai_sessions?: {
+    tool: string;
+    project: string;
+    timestamp: string;
+    tokens_read: number;
+    tokens_write: number;
+    tokens_cache: number;
+    cost: number;
+    tools_called: number;
+    files_changed: number;
+  }[];
   machine?: string;
   os?: string;
 };
