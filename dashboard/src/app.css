@@ -1,0 +1,19 @@
+@import "./styles/reset.css";
+@import "./styles/theme.css";
+
+:root {
+  --font-display: Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+body {
+  font-family:
+    "Instrument Sans",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+
+  color: var(--foreground);
+  background-color: var(--background);
+  transition: background-color 0.2s;
+}
