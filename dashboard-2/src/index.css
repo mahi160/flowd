@@ -1,0 +1,35 @@
+@import "tailwindcss";
+@custom-variant dark (&:is(.dark *));
+
+@import "./theme.css";
+
+@theme {
+  --font-display: Georgia, serif;
+  --font-sans: "Instrument Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+
+  --color-foreground: var(--foreground);
+
+  --color-border: var(--border);
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-foreground);
+  background-color: var(--color-background);
+  transition: background-color 0.2s;
+}
+
+/* Custom ClassNames */
+.summary-widget-badge {
+  --bg: var(--color-accent);
+  @apply px-2 py-1 rounded bg-(--bg)/20 font-mono text-foreground/50 text-[10px] flex gap-1 items-center justify-center w-fit min-w-20 mt-1;
+}
