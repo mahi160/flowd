@@ -1,19 +1,25 @@
-@import "./styles/reset.css";
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 @import "./styles/theme.css";
 
-:root {
+@theme {
+  --font-sans: "Instrument Sans", -apple-system, BlinkMacSystemFont, sans-serif;
   --font-display: Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-primary: var(--primary);
+  --color-accent: var(--accent);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-border: var(--border);
 }
 
 body {
-  font-family:
-    "Instrument Sans",
-    -apple-system,
-    BlinkMacSystemFont,
-    sans-serif;
-
-  color: var(--foreground);
-  background-color: var(--background);
+  font-family: var(--font-sans);
+  color: var(--color-foreground);
+  background-color: var(--color-background);
   transition: background-color 0.2s;
 }

@@ -24,4 +24,4 @@ function loadDevMock(): IFlowdData | null {
     return null;
   }
 }
-export const flowd = $state<IFlowdData>(loadData() || loadDevMock() || {});
+export const flowd = $state<IFlowdData>(loadData() || loadDevMock() || ({} as IFlowdData));
