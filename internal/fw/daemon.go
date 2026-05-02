@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mahi160/flowd/internal/ai_sessions"
 	"github.com/spf13/cobra"
 )
 
@@ -64,6 +65,24 @@ func cmdStart() *cobra.Command {
 			go func() {
 				defer wg.Done()
 				runScheduler(ctx, d, cfg)
+			}()
+
+			go func() {
+				defer wg.Done()
+				// Run periodic AI scan every 30 mins
+				ticker := time.NewTicker(30 * time.Minute)
+				defer ticker.Stop()
+				svc := ai_sessions.NewService(d.DB, cfg.AISessionPaths)
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						if err := svc.RunSync(); err != nil {
+							slog.Error("ai session scan", "err", err)
+						}
+					}
+				}
 			}()
 
 			wg.Wait()

@@ -37,6 +37,23 @@ CREATE TABLE IF NOT EXISTS blocks (
   summary         TEXT NOT NULL DEFAULT '',
   ai_summary      TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS ai_sessions_raw (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  tool         TEXT NOT NULL,
+  project      TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  ts           DATETIME NOT NULL,
+  tokens_read  INTEGER NOT NULL,
+  tokens_write INTEGER NOT NULL,
+  tokens_cache INTEGER NOT NULL,
+  cost         REAL NOT NULL,
+  tools_called INTEGER NOT NULL,
+  files_changed INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS ai_sessions_watermark (
+  tool   TEXT PRIMARY KEY,
+  offset INTEGER NOT NULL DEFAULT 0
+);
 CREATE INDEX IF NOT EXISTS idx_blocks_start ON blocks(start_ts);
 `
 
