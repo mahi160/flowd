@@ -6,10 +6,7 @@ export interface CardProps extends HTMLAttributes<HTMLDivElement> {
 }
 export function Card({ children, heading, description, ...props }: CardProps) {
   return (
-    <div
-      className="rounded-xl shadow bg-surface p-4 flex flex-col gap-3"
-      {...props}
-    >
+    <div className="rounded-xl shadow bg-surface p-4 flex flex-col gap-3" {...props}>
       <div className="flex gap-2 items-baseline justify-start">
         <h2 className="font-display text-xs tracking-wider font-light leading-none text-foreground/60 uppercase">
           {heading}
