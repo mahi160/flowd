@@ -161,6 +161,7 @@ const HeatLegend = () => (
     more
   </span>
 );
+
 function ActivityHeatmap({ data }: { data: Data }) {
   let peak = 0,
     peakHour = 8;
@@ -201,6 +202,7 @@ function ActivityHeatmap({ data }: { data: Data }) {
     </section>
   );
 }
+
 function WeekHeatmap({ data }: { data: Data }) {
   const days = Object.entries(data.weekHourlyByDay),
     max = Math.max(1, ...days.flatMap(([, h]) => h));
@@ -235,6 +237,62 @@ function WeekHeatmap({ data }: { data: Data }) {
   );
 }
 
+function AISessions({ data }: { data: Data }) {
+  console.log(data);
+  if (!data.aiSessions || data.aiSessions.length === 0) return null;
+  const tools = Array.from(new Set(data.aiSessions.map((s) => s.tool)));
+  const [active, setActive] = useState(tools[0]);
+
+  return (
+    <section class="card">
+      <div class="card-head">
+        <div class="card-title">AI Sessions</div>
+        <div class="seg">
+          {tools.map((t) => (
+            <button
+              key={t}
+              class={active === t ? "is-active" : ""}
+              onClick={() => setActive(t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div class="ai-sessions-scroll">
+        <table class="ai-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Project</th>
+              <th>Tokens (R/W/C)</th>
+              <th>Tools</th>
+              <th>Files</th>
+              <th>Cost</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.aiSessions
+              .filter((s) => s.tool === active)
+              .map((s, i) => (
+                <tr key={i}>
+                  <td>{s.timestamp}</td>
+                  <td>{s.project}</td>
+                  <td class="tnum">
+                    {s.tokens_read} / {s.tokens_write} / {s.tokens_cache}
+                  </td>
+                  <td class="tnum">{s.tools_called}</td>
+                  <td class="tnum">{s.files_changed}</td>
+                  <td class="tnum">${s.cost.toFixed(4)}</td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 function Insights({ data }: { data: Data }) {
   const icon = (
     <svg width="15" height="15" viewBox="0 0 24 24" fill="none">
@@ -247,6 +305,7 @@ function Insights({ data }: { data: Data }) {
       <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
     </svg>
   );
+
   const Row = ({
     tag,
     cls = "",
@@ -265,6 +324,7 @@ function Insights({ data }: { data: Data }) {
       </p>
     </div>
   );
+
   if (data.aiRecap)
     return (
       <section class="card">
@@ -276,6 +336,7 @@ function Insights({ data }: { data: Data }) {
         <Row tag="summary" cls="good" body={data.aiRecap} />
       </section>
     );
+
   if (data.aiPerBlock > 0)
     return (
       <section class="card">
@@ -293,6 +354,7 @@ function Insights({ data }: { data: Data }) {
         />
       </section>
     );
+
   return (
     <section class="card">
       <div class="insights-head">
@@ -466,6 +528,7 @@ function Languages({ data }: { data: Data }) {
     </section>
   );
 }
+
 function HourPattern({ data }: { data: Data }) {
   const max = Math.max(1, ...data.hourly),
     peak = data.hourly.indexOf(Math.max(...data.hourly)),
@@ -502,6 +565,7 @@ function HourPattern({ data }: { data: Data }) {
     </section>
   );
 }
+
 function StreakCard({ data }: { data: Data }) {
   const s = data.streakDays,
     sub =
@@ -556,6 +620,7 @@ function StreakCard({ data }: { data: Data }) {
     </section>
   );
 }
+
 function ProjectBreakdown({ data }: { data: Data }) {
   const top = data.byProject[0]?.min || 1;
   return (
@@ -584,6 +649,7 @@ function ProjectBreakdown({ data }: { data: Data }) {
     </section>
   );
 }
+
 function Timeline({ data }: { data: Data }) {
   const entries = [...data.timeline].reverse(),
     max = Math.max(1, ...entries.map((e) => e.focus));
@@ -654,6 +720,7 @@ function Timeline({ data }: { data: Data }) {
     </section>
   );
 }
+
 function Summary({ data }: { data: Data }) {
   const top3 = (arr: Item[]) =>
     arr
@@ -709,6 +776,7 @@ function Summary({ data }: { data: Data }) {
     </section>
   );
 }
+
 function WeekBars({ data }: { data: Data }) {
   const max = Math.max(1, ...data.weekDays.map((d) => d.min));
   return (
@@ -764,12 +832,14 @@ function TodayView({ data }: { data: Data }) {
         <ProjectBreakdown data={data} />
       </div>
       <div class="grid-bot">
+        <AISessions data={data} />
         <Timeline data={data} />
         <Summary data={data} />
       </div>
     </main>
   );
 }
+
 function WeekView({ data }: { data: Data }) {
   return (
     <main class="dashboard">
@@ -786,12 +856,14 @@ function WeekView({ data }: { data: Data }) {
         <Languages data={data} />
       </div>
       <div class="grid-bot">
+        <AISessions data={data} />
         <Timeline data={data} />
         <Summary data={data} />
       </div>
     </main>
   );
 }
+
 const EmptyState = () => (
   <main class="dashboard">
     <div class="card empty-state">
@@ -804,6 +876,7 @@ const EmptyState = () => (
     </div>
   </main>
 );
+
 const WrongPeriod = ({ data, view }: { data: Data; view: string }) => (
   <main class="dashboard">
     <div class="card empty-state">

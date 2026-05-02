@@ -8,8 +8,29 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mahi160/flowd/internal/ai_sessions"
 	"github.com/spf13/cobra"
 )
+
+func cmdScanAI() *cobra.Command {
+	return &cobra.Command{
+		Use:   "scan-ai",
+		Short: "Manually trigger AI session scan",
+		RunE: func(*cobra.Command, []string) error {
+			cfg, err := LoadConfig(cfgPath)
+			if err != nil {
+				return err
+			}
+			d, err := OpenDB(cfg.DBPath())
+			if err != nil {
+				return err
+			}
+			defer d.Close()
+			svc := ai_sessions.NewService(d.DB, cfg.AISessionPaths)
+			return svc.RunSync()
+		},
+	}
+}
 
 func cmdInit() *cobra.Command {
 	var force bool
@@ -158,6 +179,22 @@ func cmdDashboard() *cobra.Command {
 				return err
 			}
 
+			// Load AI Sessions
+			rows, err := d.QueryContext(cmd.Context(),
+				`SELECT tool, project, ts, tokens_read, tokens_write, tokens_cache, cost, tools_called, files_changed 
+				 FROM ai_sessions_raw WHERE ts >= ? AND ts < ?`, start.UTC(), end.UTC())
+			var sessions []AISession
+			if err == nil {
+				for rows.Next() {
+					var s AISession
+					var ts time.Time
+					rows.Scan(&s.Tool, &s.Project, &ts, &s.TokensRead, &s.TokensWrite, &s.TokensCache, &s.Cost, &s.ToolsCalled, &s.FilesChanged)
+					s.Timestamp = ts.Local().Format("15:04")
+					sessions = append(sessions, s)
+				}
+				rows.Close()
+			}
+
 			recap := ""
 			if aiRecap {
 				if !cfg.AIEnabled || cfg.AICommand == "" {
@@ -174,7 +211,7 @@ func cmdDashboard() *cobra.Command {
 			if out == "" {
 				out = filepath.Join(os.TempDir(), fmt.Sprintf("flowd-%s.html", period))
 			}
-			if err := RenderDashboard(blocks, period, recap, out); err != nil {
+			if err := RenderDashboard(blocks, sessions, period, recap, out); err != nil {
 				return err
 			}
 			fmt.Printf("dashboard → %s\n", out)

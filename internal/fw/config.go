@@ -23,6 +23,7 @@ type Config struct {
 	AIEnabled bool   `yaml:"ai_enabled"`
 	AICommand string `yaml:"ai_command"` // any CLI reading stdin → stdout. Run via `sh -c`.
 	AIPrompt  string `yaml:"ai_prompt"`  // prepended to the block summary on stdin.
+	AISessionPaths map[string]string `yaml:"ai_session_paths"`
 }
 
 // DBPath derives the SQLite path from RepoPath and MachineName.
@@ -46,6 +47,10 @@ func DefaultConfig() *Config {
 		AIEnabled:        true,
 		AICommand:        "pi -p --model haiku",
 		AIPrompt:         "Summarize this coding session (30 focused minutes) in 2 short sentences. Focus on what was accomplished and any patterns. Be concise.",
+		AISessionPaths: map[string]string{
+			"claude-code": filepath.Join(home, ".claude/projects"),
+			"pi":          filepath.Join(home, ".pi/agent/session"),
+		},
 	}
 }
 

@@ -34,8 +34,21 @@ type dashPayload struct {
 	TopBranch     string         `json:"top_branch"`
 	AIRecap       string         `json:"ai_recap"`
 	AIPerBlock    int            `json:"ai_per_block"`
+	AISessions    []AISession    `json:"ai_sessions"`
 	Machine       string         `json:"machine"`
 	OS            string         `json:"os"`
+}
+
+type AISession struct {
+	Tool        string  `json:"tool"`
+	Project     string  `json:"project"`
+	Timestamp   string  `json:"timestamp"`
+	TokensRead  int     `json:"tokens_read"`
+	TokensWrite int     `json:"tokens_write"`
+	TokensCache int     `json:"tokens_cache"`
+	Cost        float64 `json:"cost"`
+	ToolsCalled int     `json:"tools_called"`
+	FilesChanged int    `json:"files_changed"`
 }
 
 type hourBucket struct {
@@ -54,7 +67,7 @@ type tlBlock struct {
 	AI       string `json:"ai,omitempty"`
 }
 
-func buildDashPayload(period string, blocks []Block) dashPayload {
+func buildDashPayload(period string, blocks []Block, sessions []AISession) dashPayload {
 	pl := GetPlatform()
 	p := dashPayload{
 		Period:    period,
@@ -62,6 +75,7 @@ func buildDashPayload(period string, blocks []Block) dashPayload {
 		ByProject: map[string]int{},
 		ByTool:    map[string]int{},
 		Languages: map[string]int{},
+		AISessions: sessions,
 		Machine:   pl.Machine,
 		OS:        pl.OS,
 	}
@@ -175,8 +189,8 @@ func streak(blocks []Block) int {
 
 // RenderDashboard writes the static dashboard HTML. aiRecap is optional;
 // pass "" to skip the aggregate AI block in the UI.
-func RenderDashboard(blocks []Block, period, aiRecap, outPath string) error {
-	data := buildDashPayload(period, blocks)
+func RenderDashboard(blocks []Block, sessions []AISession, period, aiRecap, outPath string) error {
+	data := buildDashPayload(period, blocks, sessions)
 	data.AIRecap = aiRecap
 	js, err := json.Marshal(data)
 	if err != nil {
