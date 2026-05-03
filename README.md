@@ -1,4 +1,4 @@
-# flowd
+# Flowd
 
 Local coding-activity tracker. Watches your tmux sessions, builds focus-based
 summaries, and commits them to a private git journal — every commit is a green
@@ -9,7 +9,7 @@ you own.
 
 ---
 
-## What it does
+## What It Does
 
 Every few seconds it checks your **attached** tmux session and records:
 
@@ -70,7 +70,7 @@ starts automatically with tmux.
 
 ---
 
-## Journal repo structure
+## Journal Repo Structure
 
 ```
 flowd-private/              ← your private git repo
@@ -86,7 +86,7 @@ second machine later.
 
 ---
 
-## How it works
+## How It Works
 
 ```
   every 3s ──▶  tmux list-clients
@@ -138,7 +138,7 @@ ai_command: "pi -p --model haiku"
 ai_prompt: "Summarize this coding session (30 focused minutes) in 2 short sentences."
 ```
 
-### AI integration
+### AI Integration
 
 Flowd pipes each block summary through any CLI tool that reads stdin and
 prints to stdout:
@@ -169,7 +169,7 @@ prints to stdout:
 
 ---
 
-## GitHub contribution graph
+## GitHub Contribution Graph
 
 flowd is designed around the GitHub contribution graph. Every 30 focused
 minutes = one commit = one green square. The commit timestamp reflects when
