@@ -1,8 +1,8 @@
 <script lang="ts">
-  import Card from "../../components/Card.svelte";
-  import SparklineChart from "../../components/SparklineChart.svelte";
-  import { formatDuration } from "../../helper";
-  import { flowd } from "../../store.svelte";
+  import Card from "../components/Card.svelte";
+  import SparklineChart from "../components/SparklineChart.svelte";
+  import { formatDuration } from "../helper";
+  import { flowd } from "../store.svelte";
 
   const mins = $derived(flowd.total_focus_min);
   const time = $derived(formatDuration(mins));
