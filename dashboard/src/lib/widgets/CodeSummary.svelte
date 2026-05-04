@@ -1,19 +1,28 @@
-<script>
+<script lang="ts">
   import Card from "../components/Card.svelte";
-  import { flowd } from "../store.svelte";
+
+  const commits = 7;
+  const added = 1220;
+  const removed = 6545;
+  const files = 28;
+  const repos = 3;
+  const trend = "-4%";
 </script>
 
-<Card heading="Code" description="">
-  <p class="font-display text-2xl font-light tabular-nums">
-    {flowd?.files_changed} files
-  </p>
-  <div
-    class="flex gap-2 items-center text-xs font-mono text-foreground/30 tabular-nums"
-  >
-    <span class="text-accent">+{flowd?.lines_added}</span>/
-    <span class="text-danger">-{flowd?.lines_removed}</span>
+<Card heading="Code" eyebrow>
+  <div class="font-display text-4xl text-foreground tabular-nums leading-none">
+    {commits} commits
   </div>
-  <div>
-    <span>js</span>
+
+  <div class="font-mono text-xs tabular-nums">
+    <span class="text-primary">+{added.toLocaleString()}</span>
+    <span class="text-foreground/30"> / </span>
+    <span class="text-danger">-{removed.toLocaleString()}</span>
+  </div>
+
+  <div class="mt-auto pt-2 font-mono text-[10px] text-foreground/50">
+    {files} files <span class="text-foreground/30 mx-1">·</span>
+    {repos} repos <span class="text-foreground/30 mx-1">·</span>
+    <span class="text-danger">↓ {trend}</span>
   </div>
 </Card>
