@@ -2,7 +2,7 @@
   import { Moon, Sun } from "lucide-svelte";
   import { onMount } from "svelte";
 
-  let dark = false;
+  let dark = $state(false);
 
   function toggleTheme() {
     dark = !dark;
@@ -12,13 +12,13 @@
     dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
 
-  $: {
+  $effect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
-  }
+  });
 </script>
 
 <button
-  on:click={toggleTheme}
+  onclick={toggleTheme}
   aria-label="Toggle theme"
   class="size-8 flex items-center justify-center bg-surface rounded-lg shadow-sm cursor-pointer"
 >

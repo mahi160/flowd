@@ -1,12 +1,10 @@
-import { defineConfig } from "vite-plus";
-import { svelte } from "@sveltejs/vite-plugin-svelte";
-import { viteSingleFile } from "vite-plugin-singlefile";
 import tailwindcss from "@tailwindcss/vite";
+import { sveltekit } from "@sveltejs/kit/vite";
+import { defineConfig } from "vite";
+import { viteSingleFile } from "vite-plugin-singlefile";
 
 export default defineConfig({
-  fmt: {},
-  lint: { options: { typeAware: true, typeCheck: true } },
-  plugins: [svelte(), viteSingleFile(), tailwindcss()],
+  plugins: [sveltekit(), viteSingleFile(), tailwindcss()],
   build: {
     emptyOutDir: true,
     outDir: "../internal/fw/static",
