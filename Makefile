@@ -10,7 +10,7 @@ dashboard:
 
 # Build Go only. This is what fw update needs after cloning a tagged release.
 build:
-	go build $(LDFLAGS) -o $(BINARY) ./cmd/fw
+	CGO_ENABLED=1 go build $(LDFLAGS) -o $(BINARY) ./cmd/fw
 
 # Build dashboard artifact, then Go binary.
 build-all: dashboard build
