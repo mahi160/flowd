@@ -163,17 +163,12 @@ func cmdStatus() *cobra.Command {
 
 const stateBlockStart = "block_start_ts"
 
-// runScheduler drives two independent behaviours:
+// runScheduler drives two independent cadences:
 //
-//  1. Block cadence — a new block is written (and committed) every time the
-//     user has accumulated cfg.FocusBlockMin of *focused* minutes since the
-//     previous block.  blockStart is persisted in the state table so nothing
-//     is lost across daemon restarts.
+//  1. Commit cadence — every 30 minutes a new block is built from accumulated
+//     events and committed to git (if a remote is configured).
 //
-//  2. Push cadence — git push runs exactly twice per daemon lifetime:
-//     • once on startup (catches any commits written during previous sessions,
-//       and handles the "PC was off at 10 pm → push next morning" case), and
-//     • once per calendar day at 10 pm local time.
+//  2. Push cadence — git push runs once per hour, independently of commits.
 func runScheduler(ctx context.Context, d *DB, cfg *Config) {
 	// Restore blockStart from the last run, or start fresh.
 	blockStart := time.Now()
@@ -187,49 +182,19 @@ func runScheduler(ctx context.Context, d *DB, cfg *Config) {
 		}
 	}
 
-	// Startup push — runs in background so it doesn't delay tracking.
-	if cfg.GitRemote != "" {
-		go func() {
-			if err := PushJournal(ctx, cfg.RepoPath, cfg.Branch); err != nil {
-				slog.Warn("startup push", "err", err)
-			}
-		}()
-	}
+	commitTicker := time.NewTicker(30 * time.Minute)
+	defer commitTicker.Stop()
 
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	lastPushDay := -1 // YearDay of last 10 pm push
+	pushTicker := time.NewTicker(60 * time.Minute)
+	defer pushTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case now := <-ticker.C:
-			// ── 10 pm push (once per calendar day, local time) ────────────
-			if cfg.GitRemote != "" {
-				local := now.Local()
-				if local.Hour() == 22 {
-					day := local.YearDay()
-					if day != lastPushDay {
-						lastPushDay = day
-						if err := PushJournal(ctx, cfg.RepoPath, cfg.Branch); err != nil {
-							slog.Warn("10pm push", "err", err)
-						}
-					}
-				}
-			}
 
-			// ── Focus-based block trigger ──────────────────────────────────
-			focused, err := countFocusedMin(ctx, d, blockStart, now, cfg.PollIntervalSec)
-			if err != nil {
-				slog.Error("count focused min", "err", err)
-				continue
-			}
-			if focused < cfg.FocusBlockMin {
-				continue
-			}
-
+		case now := <-commitTicker.C:
+			// ── Build block + commit every 30 minutes ─────────────────────
 			end := now
 			b, err := BuildBlock(ctx, d, blockStart, end, cfg.PollIntervalSec, true)
 			if err != nil {
@@ -263,10 +228,17 @@ func runScheduler(ctx context.Context, d *DB, cfg *Config) {
 			if _, err := d.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 				slog.Warn("wal checkpoint", "err", err)
 			}
-			// Commit every block; push is deferred to startup / 10 pm.
 			if cfg.GitRemote != "" {
 				if err := CommitJournal(ctx, cfg.RepoPath, cfg.Branch); err != nil {
 					slog.Warn("journal commit", "err", err)
+				}
+			}
+
+		case <-pushTicker.C:
+			// ── Push every hour ───────────────────────────────────────────
+			if cfg.GitRemote != "" {
+				if err := PushJournal(ctx, cfg.RepoPath, cfg.Branch); err != nil {
+					slog.Warn("hourly push", "err", err)
 				}
 			}
 		}
