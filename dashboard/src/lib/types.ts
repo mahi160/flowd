@@ -1,6 +1,13 @@
 export interface IFlowdData {
   date: string;
   period: "today" | "week" | "month";
+  focused: {
+    total: number;
+    blocks: number;
+    longest: string;
+    switches: number;
+    trend: number;
+  };
 }
 // export type IFlowdData = {
 //   period: string;

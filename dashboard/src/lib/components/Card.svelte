@@ -1,59 +1,59 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import type { HTMLAttributes } from "svelte/elements";
 
-  type CardProps = HTMLAttributes<HTMLDivElement> & {
+  interface CardProps extends Omit<HTMLAttributes<HTMLDivElement>, "children"> {
+    children?: Snippet;
     heading?: string;
     description?: string;
     eyebrow?: boolean;
-  };
+  }
 
   let {
     children,
     heading,
     description,
     eyebrow = false,
-    class: klass = "",
+    class: className = "",
     ...props
   }: CardProps = $props();
 </script>
 
 <div
-  class="rounded-xl border border-border bg-surface p-4 flex flex-col gap-3 {klass}"
+  class="flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 {className}"
   {...props}
 >
   {#if heading}
-    {#if eyebrow}
-      <div class="flex flex-col">
+    <header class="flex flex-col">
+      {#if eyebrow}
         <span
-          class="font-mono text-[10px] uppercase tracking-[0.18em] text-foreground/50"
+          class="font-mono text-[10px] uppercase tracking-[0.2em] leading-none text-foreground/50"
         >
           {heading}
         </span>
         {#if description}
-          <span class="font-mono text-[10px] text-foreground/40 mt-0.5">
+          <span class="mt-1 font-mono text-[10px] text-foreground/40">
             {description}
           </span>
         {/if}
-      </div>
-    {:else}
-      <div class="flex items-baseline gap-3">
-        <div>
-          <h2
-            class="font-display text-[17px] font-medium tracking-tight text-foreground leading-tight"
-          >
-            {heading}
-          </h2>
-          {#if description}
-            <p class="font-mono text-[11px] text-foreground/50 mt-0.5">
-              {description}
-            </p>
-          {/if}
-        </div>
-      </div>
-    {/if}
+      {:else}
+        <h2
+          class="font-display text-[17px] font-medium leading-tight tracking-tight text-foreground"
+        >
+          {heading}
+        </h2>
+        {#if description}
+          <p class="mt-0.5 font-mono text-[11px] text-foreground/50">
+            {description}
+          </p>
+        {/if}
+      {/if}
+    </header>
   {/if}
 
-  <div class="flex flex-col gap-3 flex-1">
-    {@render children?.()}
-  </div>
+  {#if children}
+    <div class="flex flex-1 flex-col gap-3">
+      {@render children()}
+    </div>
+  {/if}
 </div>
