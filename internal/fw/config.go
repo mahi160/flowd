@@ -49,7 +49,7 @@ func DefaultConfig() *Config {
 		AIPrompt:         "Summarize this coding session (30 focused minutes) in 2 short sentences. Focus on what was accomplished and any patterns. Be concise.",
 		AISessionPaths: map[string]string{
 			"claude-code": filepath.Join(home, ".claude/projects"),
-			"pi":          filepath.Join(home, ".pi/agent/session"),
+			"pi":          filepath.Join(home, ".pi/agent/sessions"),
 		},
 	}
 }
@@ -75,9 +75,18 @@ func LoadConfig(path string) (*Config, error) {
 	for i, d := range cfg.WatchDirs {
 		cfg.WatchDirs[i] = expandHome(d)
 	}
-	// back-compat: if MachineName was not set, default is already hostname from DefaultConfig.
 	if cfg.MachineName == "" {
 		cfg.MachineName = DefaultConfig().MachineName
+	}
+	// Guard against zero/negative values that would panic in time.NewTicker.
+	if cfg.PollIntervalSec <= 0 {
+		cfg.PollIntervalSec = 3
+	}
+	if cfg.FocusBlockMin <= 0 {
+		cfg.FocusBlockMin = 30
+	}
+	if cfg.IdleThresholdSec < 0 {
+		cfg.IdleThresholdSec = 120
 	}
 	return cfg, nil
 }

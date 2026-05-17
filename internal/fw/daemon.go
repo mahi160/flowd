@@ -55,7 +55,7 @@ func cmdStart() *cobra.Command {
 			defer cancel()
 
 			var wg sync.WaitGroup
-			wg.Add(2)
+			wg.Add(3)
 
 			go func() {
 				defer wg.Done()
@@ -69,17 +69,19 @@ func cmdStart() *cobra.Command {
 
 			go func() {
 				defer wg.Done()
-				// Run periodic AI scan every 30 mins
 				ticker := time.NewTicker(30 * time.Minute)
 				defer ticker.Stop()
 				svc := ai_sessions.NewService(d.DB, cfg.AISessionPaths)
+				if err := svc.RunSync(); err != nil {
+					slog.Warn("initial ai session scan", "err", err)
+				}
 				for {
 					select {
 					case <-ctx.Done():
 						return
 					case <-ticker.C:
 						if err := svc.RunSync(); err != nil {
-							slog.Error("ai session scan", "err", err)
+							slog.Warn("ai session scan", "err", err)
 						}
 					}
 				}
@@ -163,18 +165,21 @@ func cmdStatus() *cobra.Command {
 
 const stateBlockStart = "block_start_ts"
 
-// runScheduler drives two independent cadences:
+// runScheduler drives three independent cadences:
 //
-//  1. Commit cadence — every 30 minutes a new block is built from accumulated
-//     events and committed to git (if a remote is configured).
+//  1. Focus cadence  — every FocusBlockMin of focused time triggers a block
+//     build + git commit. Wall-clock idle time does NOT count.
 //
-//  2. Push cadence — git push runs once per hour, independently of commits.
+//  2. Push cadence   — git push runs once per hour.
+//
+//  3. Cleanup cadence — raw events older than 90 days are pruned daily.
 func runScheduler(ctx context.Context, d *DB, cfg *Config) {
-	// Restore blockStart from the last run, or start fresh.
+	// Resolve the remote once — it won't change while the daemon runs.
+	hasRemote := hasGitRemote(cfg)
+
 	blockStart := time.Now()
 	if v := d.GetState(stateBlockStart); v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			// Only resume if it's within the last 24 h — older = stale.
 			if time.Since(t) < 24*time.Hour {
 				blockStart = t
 				slog.Info("resumed block start", "from", blockStart.Format(time.RFC3339))
@@ -182,19 +187,43 @@ func runScheduler(ctx context.Context, d *DB, cfg *Config) {
 		}
 	}
 
-	commitTicker := time.NewTicker(30 * time.Minute)
-	defer commitTicker.Stop()
+	focusThreshold := cfg.FocusBlockMin
+	if focusThreshold <= 0 {
+		focusThreshold = 30
+	}
+
+	focusTicker := time.NewTicker(1 * time.Minute)
+	defer focusTicker.Stop()
 
 	pushTicker := time.NewTicker(60 * time.Minute)
 	defer pushTicker.Stop()
+
+	// Prune old events once at startup, then daily.
+	pruneEvents := func() {
+		if err := d.PruneEvents(ctx, 90); err != nil {
+			slog.Warn("prune events", "err", err)
+		}
+	}
+	pruneEvents()
+	cleanupTicker := time.NewTicker(24 * time.Hour)
+	defer cleanupTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 
-		case now := <-commitTicker.C:
-			// ── Build block + commit every 30 minutes ─────────────────────
+		case now := <-focusTicker.C:
+			focused, err := countFocusedMin(ctx, d, blockStart, now, cfg.PollIntervalSec)
+			if err != nil {
+				slog.Warn("count focused min", "err", err)
+				continue
+			}
+			if focused < focusThreshold {
+				continue
+			}
+
+			slog.Info("focus threshold reached", "focused_min", focused, "threshold", focusThreshold)
 			end := now
 			b, err := BuildBlock(ctx, d, blockStart, end, cfg.PollIntervalSec, true)
 			if err != nil {
@@ -202,7 +231,6 @@ func runScheduler(ctx context.Context, d *DB, cfg *Config) {
 				continue
 			}
 			blockStart = end
-			// Persist the new blockStart immediately so a crash doesn't orphan events.
 			if err := d.SetState(stateBlockStart, blockStart.UTC().Format(time.RFC3339)); err != nil {
 				slog.Warn("persist block start", "err", err)
 			}
@@ -221,32 +249,33 @@ func runScheduler(ctx context.Context, d *DB, cfg *Config) {
 				}
 			}
 
-			if err := WriteJournal(cfg, b); err != nil {
+			if err := WriteJournal(ctx, cfg, d, b); err != nil {
 				slog.Error("journal write", "err", err)
 				continue
 			}
 			if _, err := d.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); err != nil {
 				slog.Warn("wal checkpoint", "err", err)
 			}
-			if cfg.GitRemote != "" {
+			if hasRemote {
 				if err := CommitJournal(ctx, cfg.RepoPath, cfg.Branch); err != nil {
 					slog.Warn("journal commit", "err", err)
 				}
 			}
 
 		case <-pushTicker.C:
-			// ── Push every hour ───────────────────────────────────────────
-			if cfg.GitRemote != "" {
+			if hasRemote {
 				if err := PushJournal(ctx, cfg.RepoPath, cfg.Branch); err != nil {
 					slog.Warn("hourly push", "err", err)
 				}
 			}
+
+		case <-cleanupTicker.C:
+			pruneEvents()
 		}
 	}
 }
 
-// countFocusedMin returns the number of focused minutes recorded between
-// start and end by counting EvActive ticks in the DB.
+// countFocusedMin counts EvActive ticks between start and end.
 func countFocusedMin(ctx context.Context, d *DB, start, end time.Time, pollSec int) (int, error) {
 	var count int
 	err := d.QueryRowContext(ctx,

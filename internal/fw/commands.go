@@ -3,6 +3,7 @@ package fw
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,7 +91,6 @@ func cmdSummary() *cobra.Command {
 			}
 			defer d.Close()
 
-			// Determine blockStart: resume from persisted state if available.
 			blockStart := time.Now().Add(-time.Duration(cfg.FocusBlockMin) * time.Minute)
 			if v := d.GetState(stateBlockStart); v != "" {
 				if t, err := time.Parse(time.RFC3339, v); err == nil {
@@ -104,11 +104,10 @@ func cmdSummary() *cobra.Command {
 				return err
 			}
 			if save {
-				// Force-close the block: persist the new blockStart.
 				if err := d.SetState(stateBlockStart, end.UTC().Format(time.RFC3339)); err != nil {
 					return fmt.Errorf("persist block start: %w", err)
 				}
-				if err := WriteJournal(cfg, b); err != nil {
+				if err := WriteJournal(cmd.Context(), cfg, d, b); err != nil {
 					return fmt.Errorf("journal write: %w", err)
 				}
 				fmt.Println("block saved.")
@@ -166,6 +165,8 @@ func cmdDashboard() *cobra.Command {
 				return err
 			}
 			defer d.Close()
+			initPlatform(cfg.MachineName) // needed so dashboard shows configured name, not hostname
+
 			period := "today"
 			if len(args) > 0 {
 				period = args[0]
@@ -173,26 +174,19 @@ func cmdDashboard() *cobra.Command {
 			if period != "today" && period != "week" {
 				return fmt.Errorf("invalid period %q (want today or week)", period)
 			}
+
 			start, end := PeriodRange(period, time.Now())
 			blocks, err := LoadBlocks(cmd.Context(), d, start, end)
 			if err != nil {
 				return err
 			}
 
-			// Load AI Sessions
-			rows, err := d.QueryContext(cmd.Context(),
-				`SELECT tool, project, ts, tokens_read, tokens_write, tokens_cache, cost, tools_called, files_changed 
-				 FROM ai_sessions_raw WHERE ts >= ? AND ts < ?`, start.UTC(), end.UTC())
-			var sessions []AISession
-			if err == nil {
-				for rows.Next() {
-					var s AISession
-					var ts time.Time
-					rows.Scan(&s.Tool, &s.Project, &ts, &s.TokensRead, &s.TokensWrite, &s.TokensCache, &s.Cost, &s.ToolsCalled, &s.FilesChanged)
-					s.Timestamp = ts.Local().Format("15:04")
-					sessions = append(sessions, s)
-				}
-				rows.Close()
+			// Streak uses all historical blocks, not just the current period.
+			streakDays := d.QueryStreak(cmd.Context())
+
+			aiRows, err := loadAIRows(cmd.Context(), d, start, end)
+			if err != nil {
+				slog.Warn("load ai sessions", "err", err)
 			}
 
 			recap := ""
@@ -211,7 +205,7 @@ func cmdDashboard() *cobra.Command {
 			if out == "" {
 				out = filepath.Join(os.TempDir(), fmt.Sprintf("flowd-%s.html", period))
 			}
-			if err := RenderDashboard(blocks, sessions, period, recap, out); err != nil {
+			if err := RenderDashboard(blocks, aiRows, period, recap, streakDays, out); err != nil {
 				return err
 			}
 			fmt.Printf("dashboard → %s\n", out)

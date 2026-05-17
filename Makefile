@@ -6,7 +6,7 @@ BINARY  := fw
 
 # Build the dashboard single-file artifact embedded by Go.
 dashboard:
-	cd dashboard && npm ci && npm run build
+	cd dashboard && pnpm install --frozen-lockfile && pnpm run build
 
 # Build Go only. This is what fw update needs after cloning a tagged release.
 build:

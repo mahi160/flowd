@@ -52,6 +52,9 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 		}
 		events = append(events, e)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
 	b := &Block{
 		StartTS: start, EndTS: end,
@@ -116,16 +119,14 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 	b.Repo = topKey(repoCt)
 	b.Project = topKey(projCt)
 
-	// convert seconds → minutes (round up min 1 if any time)
+	// convert seconds → minutes using truncating division (same as FocusedMin).
+	// Drop entries under 30 seconds rather than inflating them to 1 min — that
+	// would cause the per-tool/project sums to exceed FocusedMin.
 	toMin := func(m map[string]int) {
 		for k, s := range m {
-			if s == 0 {
-				delete(m, k)
-				continue
-			}
-			m[k] = (s + 30) / 60
+			m[k] = s / 60
 			if m[k] == 0 {
-				m[k] = 1
+				delete(m, k)
 			}
 		}
 	}
@@ -144,8 +145,10 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 		parts := strings.SplitN(k, "\x00", 2)
 		cwdsByRepo[parts[0]] = append(cwdsByRepo[parts[0]], parts[1])
 	}
-	since := start.Format("2006-01-02T15:04:05Z")
-	until := end.Format("2006-01-02T15:04:05Z")
+	// Always use UTC when passing timestamps to git --since/--until.
+	// The format string has a literal 'Z' suffix, so the time MUST be UTC first.
+	since := start.UTC().Format("2006-01-02T15:04:05Z")
+	until := end.UTC().Format("2006-01-02T15:04:05Z")
 	for repo, cwds := range cwdsByRepo {
 		root := RepoRoot(cwds[0])
 		if root == "" {
@@ -173,15 +176,15 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 	// runtime command → language (node → JS, python → Python, etc.)
 	for cmd, ticks := range runtimeByCmd {
 		if lang := LangFromCommand(cmd); lang != "" {
-			b.Languages[lang] += (ticks*secPerTick + 30) / 60
+			b.Languages[lang] += (ticks * secPerTick) / 60 // truncating, consistent with toMin
 		}
 	}
 
 	// editor in dirs with no git repo → scan cwd for dominant language
 	for cwd, ticks := range cwdNoRepo {
-		mins := (ticks*secPerTick + 30) / 60
+		mins := (ticks * secPerTick) / 60
 		if mins == 0 {
-			mins = 1
+			continue // drop sub-minute editor sessions
 		}
 		counts := ScanLangs(cwd)
 		total := 0
@@ -195,6 +198,14 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 		}
 	}
 
+	// Clean up Languages: remove noise extensions and zero-value entries.
+	// Known-good languages are in extLang; anything else is dropped.
+	for lang, min := range b.Languages {
+		if min <= 0 || !isKnownLang(lang) {
+			delete(b.Languages, lang)
+		}
+	}
+
 	b.Summary = render(b)
 
 	if persist {
@@ -204,8 +215,13 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 			return nil, fmt.Errorf("marshal block: %w", err)
 		}
 		if _, err := d.ExecContext(ctx,
-			`INSERT OR REPLACE INTO blocks (start_ts, end_ts, project, repo, focused_minutes, switches, data, summary)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO blocks (start_ts, end_ts, project, repo, focused_minutes, switches, data, summary)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			 ON CONFLICT(start_ts) DO UPDATE SET
+			   end_ts=excluded.end_ts, project=excluded.project, repo=excluded.repo,
+			   focused_minutes=excluded.focused_minutes, switches=excluded.switches,
+			   data=excluded.data, summary=excluded.summary
+			   -- ai_summary deliberately excluded: preserve any AI summary already written`,
 			b.StartTS.UTC(), b.EndTS.UTC(),
 			b.Project, b.Repo, b.FocusedMin, b.Switches,
 			string(dataJSON), b.Summary,

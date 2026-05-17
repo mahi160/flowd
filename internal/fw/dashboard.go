@@ -1,6 +1,7 @@
 package fw
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -8,53 +9,44 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/mahi160/flowd/internal/ai_sessions"
 )
 
 //go:embed static
 var staticFiles embed.FS
 
 type dashPayload struct {
-	Period        string         `json:"period"`
-	Generated     string         `json:"generated"`
-	TotalFocusMin int            `json:"total_focus_min"`
-	TotalBlocks   int            `json:"total_blocks"`
-	TotalSwitches int            `json:"total_switches"`
-	FilesChanged  int            `json:"files_changed"`
-	LinesAdded    int            `json:"lines_added"`
-	LinesRemoved  int            `json:"lines_removed"`
-	ByProject     map[string]int `json:"by_project"`
-	ByTool        map[string]int `json:"by_tool"`
-	Languages     map[string]int `json:"languages"`
-	Heatmap       []hourBucket   `json:"heatmap"` // 7×24 grid for week, 1×48 (30-min) for today
-	Timeline      []tlBlock      `json:"timeline"`
-	StreakDays    int            `json:"streak_days"`
-	TopRepo       string         `json:"top_repo"`
-	TopBranch     string         `json:"top_branch"`
-	AIRecap       string         `json:"ai_recap"`
-	AIPerBlock    int            `json:"ai_per_block"`
-	AISessions    []AISession    `json:"ai_sessions"`
-	Machine       string         `json:"machine"`
-	OS            string         `json:"os"`
-}
-
-type AISession struct {
-	Tool        string  `json:"tool"`
-	Project     string  `json:"project"`
-	Timestamp   string  `json:"timestamp"`
-	TokensRead  int     `json:"tokens_read"`
-	TokensWrite int     `json:"tokens_write"`
-	TokensCache int     `json:"tokens_cache"`
-	Cost        float64 `json:"cost"`
-	ToolsCalled int     `json:"tools_called"`
-	FilesChanged int    `json:"files_changed"`
+	Period        string                    `json:"period"`
+	Generated     string                    `json:"generated"`
+	TotalFocusMin int                       `json:"total_focus_min"`
+	TotalBlocks   int                       `json:"total_blocks"`
+	TotalSwitches int                       `json:"total_switches"`
+	FilesChanged  int                       `json:"files_changed"`
+	LinesAdded    int                       `json:"lines_added"`
+	LinesRemoved  int                       `json:"lines_removed"`
+	ByProject     map[string]int            `json:"by_project"`
+	ByTool        map[string]int            `json:"by_tool"`
+	Languages     map[string]int            `json:"languages"`
+	Heatmap       []hourBucket              `json:"heatmap"`
+	Timeline      []tlBlock                 `json:"timeline"`
+	StreakDays    int                       `json:"streak_days"`
+	TopRepo       string                    `json:"top_repo"`
+	TopBranch     string                    `json:"top_branch"`
+	AIRecap       string                    `json:"ai_recap"`
+	AIPerBlock    int                       `json:"ai_per_block"`
+	AITools       []ai_sessions.ToolSummary `json:"ai_tools"`
+	Machine       string                    `json:"machine"`
+	OS            string                    `json:"os"`
 }
 
 type hourBucket struct {
-	Day    string `json:"day"`    // "Mon 22"
-	Hour   int    `json:"hour"`   // 0-23 (week) or 0-47 half-hour (today)
-	Minute int    `json:"minute"` // focused minutes in the bucket
+	Day    string `json:"day"`
+	Hour   int    `json:"hour"`
+	Minute int    `json:"minute"`
 }
 
 type tlBlock struct {
@@ -67,17 +59,30 @@ type tlBlock struct {
 	AI       string `json:"ai,omitempty"`
 }
 
-func buildDashPayload(period string, blocks []Block, sessions []AISession) dashPayload {
+// aiRawRow is the DB row for ai_sessions_raw.
+type aiRawRow struct {
+	Tool        string
+	Project     string
+	SessionID   string
+	Model       string
+	Timestamp   time.Time
+	TokensRead  int
+	TokensWrite int
+	TokensCache int
+	Cost        float64
+}
+
+func buildDashPayload(period string, blocks []Block, aiRows []aiRawRow, streakDays int) dashPayload {
 	pl := GetPlatform()
 	p := dashPayload{
-		Period:    period,
-		Generated: time.Now().Local().Format("Mon 02 Jan, 15:04"),
-		ByProject: map[string]int{},
-		ByTool:    map[string]int{},
-		Languages: map[string]int{},
-		AISessions: sessions,
-		Machine:   pl.Machine,
-		OS:        pl.OS,
+		Period:     period,
+		Generated:  time.Now().Local().Format("Mon 02 Jan, 15:04"),
+		ByProject:  map[string]int{},
+		ByTool:     map[string]int{},
+		Languages:  map[string]int{},
+		Machine:    pl.Machine,
+		OS:         pl.OS,
+		StreakDays: streakDays,
 	}
 	repoMin := map[string]int{}
 	repoBranch := map[string]string{}
@@ -119,13 +124,110 @@ func buildDashPayload(period string, blocks []Block, sessions []AISession) dashP
 	p.TopRepo = topKey(repoMin)
 	p.TopBranch = repoBranch[p.TopRepo]
 	p.Heatmap = buildHeatmap(period, blocks)
-	p.StreakDays = streak(blocks)
+	p.AITools = aggregateAISessions(aiRows)
 	return p
+}
+
+// aggregateAISessions groups raw rows into per-tool summaries with session detail.
+func aggregateAISessions(rows []aiRawRow) []ai_sessions.ToolSummary {
+	type sessKey struct {
+		tool, sessionID string
+	}
+	type sessAccum struct {
+		project              string
+		model                map[string]int
+		start, end           time.Time
+		input, output, cache int
+		cost                 float64
+		messages             int
+	}
+
+	tools := map[string]*ai_sessions.ToolSummary{}
+	sessions := map[sessKey]*sessAccum{}
+	toolOrder := []string{}
+
+	for _, r := range rows {
+		ts, ok := tools[r.Tool]
+		if !ok {
+			ts = &ai_sessions.ToolSummary{
+				Tool:           r.Tool,
+				ModelBreakdown: map[string]int{},
+			}
+			tools[r.Tool] = ts
+			toolOrder = append(toolOrder, r.Tool)
+		}
+		ts.TotalCost += r.Cost
+		ts.TotalInput += r.TokensRead
+		ts.TotalOutput += r.TokensWrite
+		ts.TotalCache += r.TokensCache
+		ts.MessageCount++
+		if r.Model != "" {
+			ts.ModelBreakdown[r.Model]++
+		}
+
+		sk := sessKey{r.Tool, r.SessionID}
+		sa, ok := sessions[sk]
+		if !ok {
+			sa = &sessAccum{
+				project: r.Project,
+				model:   map[string]int{},
+				start:   r.Timestamp,
+				end:     r.Timestamp,
+			}
+			sessions[sk] = sa
+		}
+		sa.input += r.TokensRead
+		sa.output += r.TokensWrite
+		sa.cache += r.TokensCache
+		sa.cost += r.Cost
+		sa.messages++
+		if r.Model != "" {
+			sa.model[r.Model]++
+		}
+		if r.Timestamp.Before(sa.start) {
+			sa.start = r.Timestamp
+		}
+		if r.Timestamp.After(sa.end) {
+			sa.end = r.Timestamp
+		}
+	}
+
+	var result []ai_sessions.ToolSummary
+	for _, toolName := range toolOrder {
+		ts := tools[toolName]
+		ts.TopModel = topKey(ts.ModelBreakdown)
+		for sk, sa := range sessions {
+			if sk.tool != toolName {
+				continue
+			}
+			ts.SessionCount++
+			ts.Sessions = append(ts.Sessions, ai_sessions.AggregatedSession{
+				Tool:         toolName,
+				Project:      sa.project,
+				SessionID:    sk.sessionID,
+				Model:        topKey(sa.model),
+				StartTime:    sa.start.Local().Format("15:04"),
+				EndTime:      sa.end.Local().Format("15:04"),
+				StartUnix:    sa.start.Unix(),
+				TotalInput:   sa.input,
+				TotalOutput:  sa.output,
+				TotalCache:   sa.cache,
+				TotalCost:    sa.cost,
+				MessageCount: sa.messages,
+			})
+		}
+		// Sort sessions newest-first using the real Unix timestamp, not the
+		// formatted string (avoids midnight-crossover string sort bugs).
+		sort.Slice(ts.Sessions, func(i, j int) bool {
+			return ts.Sessions[i].StartUnix > ts.Sessions[j].StartUnix
+		})
+		result = append(result, *ts)
+	}
+	return result
 }
 
 func buildHeatmap(period string, blocks []Block) []hourBucket {
 	if period == "week" {
-		// 7 days × 24 hours
 		bm := map[string]map[int]int{}
 		for _, b := range blocks {
 			day := b.StartTS.Local().Format("Mon 02")
@@ -136,7 +238,6 @@ func buildHeatmap(period string, blocks []Block) []hourBucket {
 			bm[day][h] += b.FocusedMin
 		}
 		var out []hourBucket
-		// stable order: oldest day first
 		now := time.Now().Local()
 		for i := 6; i >= 0; i-- {
 			d := now.AddDate(0, 0, -i)
@@ -148,7 +249,6 @@ func buildHeatmap(period string, blocks []Block) []hourBucket {
 		}
 		return out
 	}
-	// today: 48 half-hour buckets
 	buckets := make([]int, 48)
 	for _, b := range blocks {
 		l := b.StartTS.Local()
@@ -164,41 +264,27 @@ func buildHeatmap(period string, blocks []Block) []hourBucket {
 	return out
 }
 
-func streak(blocks []Block) int {
-	if len(blocks) == 0 {
-		return 0
+// hasGitRemote returns true if a push remote is available — either from the
+// config field or from an existing "origin" already set on the repo.
+// Callers should cache the result for the lifetime of the daemon session.
+func hasGitRemote(cfg *Config) bool {
+	if cfg.GitRemote != "" {
+		return true
 	}
-	days := map[string]bool{}
-	for _, b := range blocks {
-		if b.FocusedMin > 0 {
-			days[b.StartTS.Local().Format("2006-01-02")] = true
-		}
-	}
-	streak := 0
-	d := time.Now().Local()
-	for {
-		k := d.Format("2006-01-02")
-		if !days[k] {
-			break
-		}
-		streak++
-		d = d.AddDate(0, 0, -1)
-	}
-	return streak
+	repo := expandHome(cfg.RepoPath)
+	out, err := exec.Command("git", "-C", repo, "remote", "get-url", "origin").Output()
+	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
-// RenderDashboard writes the static dashboard HTML. aiRecap is optional;
-// pass "" to skip the aggregate AI block in the UI.
-func RenderDashboard(blocks []Block, sessions []AISession, period, aiRecap, outPath string) error {
-	data := buildDashPayload(period, blocks, sessions)
+// RenderDashboard writes the static dashboard HTML.
+func RenderDashboard(blocks []Block, aiRows []aiRawRow, period, aiRecap string, streakDays int, outPath string) error {
+	data := buildDashPayload(period, blocks, aiRows, streakDays)
 	data.AIRecap = aiRecap
 	js, err := json.Marshal(data)
 	if err != nil {
 		return err
 	}
 
-	// Read built dashboard shell. The source lives in /dashboard and Vite emits
-	// this single-file HTML artifact into internal/fw/static/dashboard.html.
 	tmpl, err := staticFiles.ReadFile("static/dashboard.html")
 	if err != nil {
 		return err
@@ -208,14 +294,13 @@ func RenderDashboard(blocks []Block, sessions []AISession, period, aiRecap, outP
 	}
 	html := strings.Replace(string(tmpl), "__FLOWD_PAYLOAD_JSON__", string(js), 1)
 
-	outDir := filepath.Dir(outPath)
-	if err := os.MkdirAll(outDir, 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o750); err != nil {
 		return err
 	}
 	return os.WriteFile(outPath, []byte(html), 0o644)
 }
 
-// OpenInBrowser opens a path/URL in the user's default browser.
+// OpenInBrowser opens a path in the user's default browser.
 func OpenInBrowser(path string) error {
 	switch runtime.GOOS {
 	case "darwin":
@@ -226,4 +311,25 @@ func OpenInBrowser(path string) error {
 		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path).Start()
 	}
 	return fmt.Errorf("unsupported platform: %s", runtime.GOOS)
+}
+
+// loadAIRows fetches raw AI session rows from the DB for a time range.
+func loadAIRows(ctx context.Context, d *DB, start, end time.Time) ([]aiRawRow, error) {
+	rows, err := d.QueryContext(ctx,
+		`SELECT tool, project, session_id, model, ts, tokens_read, tokens_write, tokens_cache, cost
+		 FROM ai_sessions_raw WHERE ts >= ? AND ts < ? ORDER BY ts`, start.UTC(), end.UTC())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []aiRawRow
+	for rows.Next() {
+		var r aiRawRow
+		if err := rows.Scan(&r.Tool, &r.Project, &r.SessionID, &r.Model, &r.Timestamp,
+			&r.TokensRead, &r.TokensWrite, &r.TokensCache, &r.Cost); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }

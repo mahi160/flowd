@@ -8,8 +8,27 @@ import (
 	"time"
 )
 
-// LoadBlocks fetches full Block structs (decoded from the JSON `data` column)
-// for blocks whose start_ts falls in [start, end).
+// parseDBTime parses the datetime formats SQLite may return. We always store
+// UTC, so all formats are interpreted as UTC when no timezone is present.
+func parseDBTime(s string) time.Time {
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		// go-sqlite3 without _loc=UTC stores time.Time in space-separator format:
+		"2006-01-02 15:04:05.999999999Z07:00",
+		"2006-01-02 15:04:05Z07:00",
+		"2006-01-02T15:04:05Z",
+		"2006-01-02 15:04:05",
+		"2006-01-02T15:04:05",
+	} {
+		if t, err := time.ParseInLocation(layout, s, time.UTC); err == nil {
+			return t.UTC()
+		}
+	}
+	return time.Time{}
+}
+
+// LoadBlocks fetches full Block structs for blocks whose start_ts falls in [start, end).
 func LoadBlocks(ctx context.Context, d *DB, start, end time.Time) ([]Block, error) {
 	rows, err := d.QueryContext(ctx,
 		`SELECT data, start_ts, end_ts, project, repo, focused_minutes, switches, summary, ai_summary
@@ -34,7 +53,7 @@ func LoadBlocks(ctx context.Context, d *DB, start, end time.Time) ([]Block, erro
 		if data != "" {
 			_ = json.Unmarshal([]byte(data), &b)
 		}
-		// fall back to flat columns if JSON missing (legacy rows)
+		// Fall back to flat columns for legacy rows or if JSON was empty.
 		if b.Project == "" {
 			b.Project = p
 		}
@@ -48,10 +67,10 @@ func LoadBlocks(ctx context.Context, d *DB, start, end time.Time) ([]Block, erro
 			b.Switches = switches
 		}
 		if b.StartTS.IsZero() {
-			b.StartTS, _ = time.Parse(time.RFC3339, startStr)
+			b.StartTS = parseDBTime(startStr)
 		}
 		if b.EndTS.IsZero() {
-			b.EndTS, _ = time.Parse(time.RFC3339, endStr)
+			b.EndTS = parseDBTime(endStr)
 		}
 		b.Summary = sum
 		if ai != "" {

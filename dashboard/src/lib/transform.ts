@@ -1,25 +1,16 @@
-import type { RawPayload } from "../types";
+import type { RawPayload, Item, TimelineEntry, DayBucket, ToolSummary } from "./types";
 
-export const PALETTE = [
-  "var(--c1)",
-  "var(--c2)",
-  "var(--c3)",
-  "var(--c4)",
-  "var(--c5)",
-  "var(--c6)",
-  "var(--c7)",
-  "var(--c8)",
-];
+// PALETTE removed - components use their own COLORS
+// // Components (Donut, Languages) maintain their own COLORS arrays.
+// The Item.color field is set here for API compatibility but not used for rendering.
+const COLORS = ["#6366f1","#f59e0b","#ef4444","#10b981","#8b5cf6","#ec4899","#14b8a6","#f97316"];
 
-const list = (obj?: Record<string, number>) =>
-  Object.entries(obj || {})
+function list(obj?: Record<string, number>): Item[] {
+  return Object.entries(obj || {})
     .filter(([, v]) => v > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([name, min], i) => ({
-      name,
-      min,
-      color: PALETTE[i % PALETTE.length],
-    }));
+    .map(([name, min], i) => ({ name, min, color: COLORS[i % COLORS.length] }));
+}
 
 export function transform(raw: RawPayload = {}) {
   const heat = raw.heatmap || [];
@@ -36,9 +27,10 @@ export function transform(raw: RawPayload = {}) {
     if (c.hour >= 0 && c.hour < 24) byDayHour[c.day][c.hour] += c.minute;
   }
 
-  const streak = raw.streak_days || 0;
+  const streakDays = raw.streak_days || 0;
+
   return {
-    period: raw.period === "week" ? "week" : "today",
+    period: raw.period === "week" ? ("week" as const) : ("today" as const),
     generated: raw.generated || "",
     machine: raw.machine || "—",
     os: raw.os || "",
@@ -58,26 +50,23 @@ export function transform(raw: RawPayload = {}) {
     byLanguage: list(raw.languages),
     hourly,
     weekHourlyByDay: byDayHour,
-    weekDays: Object.entries(byDay).map(([label, min]) => {
+    weekDays: Object.entries(byDay).map(([label, min]): DayBucket => {
       const [day, date = ""] = label.split(" ");
       return { day, date, min };
     }),
-    streakDays: streak,
+    streakDays,
+    // 30-cell grid: each cell = one day, newest at index 29.
+    // v=0 no activity, v=3 part of current streak, v=1 dim (streak recently broken).
+    // We only know the streak COUNT from the backend (not per-day minutes for 30d),
+    // so we mark streak days accurately and leave the rest dark.
     streakCells: Array.from({ length: 30 }, (_, i) => {
-      const ago = 29 - i;
+      const ago = 29 - i; // 0 = today, 29 = 29 days ago
       return {
         d: i,
-        v:
-          ago < streak
-            ? ago === 0
-              ? 4
-              : Math.min(4, ((i * 7 + 3) % 3) + 2)
-            : ago < streak + 8 && (i * 13) % 4 === 0
-              ? 1
-              : 0,
+        v: ago < streakDays ? (ago === 0 ? 4 : 3) : 0,
       };
     }),
-    timeline: (raw.timeline || []).map((b) => ({
+    timeline: (raw.timeline || []).map((b): TimelineEntry => ({
       from: b.start,
       to: b.end,
       project: b.repo || null,
@@ -88,6 +77,9 @@ export function transform(raw: RawPayload = {}) {
     })),
     aiRecap: raw.ai_recap || null,
     aiPerBlock: raw.ai_per_block || 0,
-    hasData: (raw.total_blocks || 0) > 0,
+    aiTools: (raw.ai_tools || []) as ToolSummary[],
+    hasData: (raw.total_blocks || 0) > 0 || (raw.ai_tools || []).length > 0,
   };
 }
+
+export type Data = ReturnType<typeof transform>;

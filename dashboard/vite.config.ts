@@ -1,14 +1,14 @@
 import { defineConfig } from "vite";
-import preact from "@preact/preset-vite";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 import { viteSingleFile } from "vite-plugin-singlefile";
 
 export default defineConfig({
-  plugins: [preact(), tailwindcss(), viteSingleFile()],
+  plugins: [svelte(), tailwindcss(), viteSingleFile()],
   build: {
     outDir: "../internal/fw/static",
     emptyOutDir: true,
-    assetsInlineLimit: 100000000,
+    assetsInlineLimit: 100_000_000,
     cssCodeSplit: false,
     rollupOptions: {
       output: { inlineDynamicImports: true },
