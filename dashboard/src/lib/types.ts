@@ -1,6 +1,6 @@
 export type CalDay = {
   date: string;   // "2026-05-17"
-  dow: number;    // 0=Sun … 6=Sat
+  dow: number;    // 0=Sun … 6=Sat (Go time.Weekday)
   min: number;
   blocks: number;
 };
@@ -11,44 +11,6 @@ export type MonthBar = {
   month: number; // 1-12
   min: number;
   blocks: number;
-};
-
-export type RawPayload = {
-  period?: "today" | "week" | string;
-  generated?: string;
-  total_focus_min?: number;
-  total_blocks?: number;
-  total_switches?: number;
-  files_changed?: number;
-  lines_added?: number;
-  lines_removed?: number;
-  by_project?: Record<string, number>;
-  by_tool?: Record<string, number>;
-  languages?: Record<string, number>;
-  heatmap?: { day: string; hour: number; minute: number }[];
-  cal_days?: CalDay[];
-  month_bars?: MonthBar[];
-  tracking_since?: string;
-  active_days?: number;
-  best_day_date?: string;
-  best_day_min?: number;
-  timeline?: {
-    start: string;
-    end: string;
-    repo: string;
-    branch: string;
-    focus: number;
-    switches: number;
-    ai?: string;
-  }[];
-  streak_days?: number;
-  top_repo?: string;
-  top_branch?: string;
-  ai_recap?: string;
-  ai_per_block?: number;
-  ai_tools?: ToolSummary[];
-  machine?: string;
-  os?: string;
 };
 
 export type ToolSummary = {
@@ -92,6 +54,44 @@ export type TimelineEntry = {
 };
 
 export type DayBucket = { day: string; date: string; min: number };
+
+// ── Per-period data ─────────────────────────────────────────────────────────
+export type RawPeriodData = {
+  total_focus_min?: number;
+  total_blocks?: number;
+  total_switches?: number;
+  files_changed?: number;
+  lines_added?: number;
+  lines_removed?: number;
+  by_project?: Record<string, number>;
+  by_tool?: Record<string, number>;
+  languages?: Record<string, number>;
+  heatmap?: { day: string; hour: number; minute: number }[];
+  cal_days?: CalDay[];
+  month_bars?: MonthBar[];
+  timeline?: {
+    start: string; end: string; repo: string; branch: string;
+    focus: number; switches: number; ai?: string;
+  }[];
+  top_repo?: string;
+  top_branch?: string;
+  ai_tools?: ToolSummary[];
+  tracking_since?: string;
+  active_days?: number;
+  best_day_date?: string;
+  best_day_min?: number;
+};
+
+// ── Top-level payload ───────────────────────────────────────────────────────
+export type RawPayload = {
+  initial_period?: string;
+  generated?: string;
+  machine?: string;
+  os?: string;
+  streak_days?: number;
+  ai_recap?: string;
+  periods?: Record<string, RawPeriodData>;
+};
 
 declare global {
   interface Window {

@@ -1,20 +1,24 @@
-import type { RawPayload, Item, TimelineEntry, DayBucket, ToolSummary, CalDay, MonthBar } from "./types";
+import type { RawPayload, RawPeriodData, Item, TimelineEntry, DayBucket, ToolSummary, CalDay, MonthBar } from "./types";
 
-// PALETTE removed - components use their own COLORS
-// // Components (Donut, Languages) maintain their own COLORS arrays.
-// The Item.color field is set here for API compatibility but not used for rendering.
-const COLORS = ["#6366f1","#f59e0b","#ef4444","#10b981","#8b5cf6","#ec4899","#14b8a6","#f97316"];
+// Consistent colours used across all chart components.
+export const CHART_COLORS = ["#6366f1","#f59e0b","#ef4444","#10b981","#8b5cf6","#ec4899","#14b8a6","#f97316"];
 
 function list(obj?: Record<string, number>): Item[] {
   return Object.entries(obj || {})
     .filter(([, v]) => v > 0)
     .sort((a, b) => b[1] - a[1])
-    .map(([name, min], i) => ({ name, min, color: COLORS[i % COLORS.length] }));
+    .map(([name, min], i) => ({ name, min, color: CHART_COLORS[i % CHART_COLORS.length] }));
 }
 
-export function transform(raw: RawPayload = {}) {
-  const heat = raw.heatmap || [];
-  const isToday = raw.period !== "week";
+// ── Main transform ──────────────────────────────────────────────────────────
+// Accepts the full raw payload and the currently selected period.
+// Returns a typed Data object for that period; shared fields (machine, streak
+// etc.) are lifted from the top level.
+export function transform(raw: RawPayload = {}, period: string = "today") {
+  const p: RawPeriodData = raw.periods?.[period] ?? {};
+  const heat = p.heatmap || [];
+  const isToday = period === "today";
+
   const hourly = Array(24).fill(0) as number[];
   const byDay: Record<string, number> = {};
   const byDayHour: Record<string, number[]> = {};
@@ -30,61 +34,78 @@ export function transform(raw: RawPayload = {}) {
   const streakDays = raw.streak_days || 0;
 
   return {
-    period: raw.period === "week" ? ("week" as const) : ("today" as const),
-    generated: raw.generated || "",
-    machine: raw.machine || "—",
-    os: raw.os || "",
-    topRepo: { name: raw.top_repo || "—", branch: raw.top_branch || "" },
+    // Shared across all periods
+    generated:    raw.generated || "",
+    machine:      raw.machine   || "—",
+    os:           raw.os        || "",
+    streakDays,
+    aiRecap:      raw.ai_recap  || null,
+
+    // Period identity
+    period: period as "today" | "week" | "month" | "year" | "all",
+
+    // Period-specific counts
     focus: {
-      totalMin: raw.total_focus_min || 0,
-      blocks: raw.total_blocks || 0,
-      switches: raw.total_switches || 0,
+      totalMin: p.total_focus_min || 0,
+      blocks:   p.total_blocks    || 0,
+      switches: p.total_switches  || 0,
     },
     code: {
-      files: raw.files_changed || 0,
-      added: raw.lines_added || 0,
-      removed: raw.lines_removed || 0,
+      files:   p.files_changed || 0,
+      added:   p.lines_added   || 0,
+      removed: p.lines_removed || 0,
     },
-    byProject: list(raw.by_project),
-    byCommand: list(raw.by_tool),
-    byLanguage: list(raw.languages),
+    topRepo:   { name: p.top_repo || "—", branch: p.top_branch || "" },
+    byProject: list(p.by_project),
+    byCommand: list(p.by_tool),
+    byLanguage: list(p.languages),
+
+    // Heatmap data (today = 48 half-hour buckets, week = 7×24)
     hourly,
     weekHourlyByDay: byDayHour,
     weekDays: Object.entries(byDay).map(([label, min]): DayBucket => {
       const [day, date = ""] = label.split(" ");
       return { day, date, min };
     }),
-    streakDays,
-    // 30-cell grid: each cell = one day, newest at index 29.
-    // v=0 no activity, v=3 part of current streak, v=1 dim (streak recently broken).
-    // We only know the streak COUNT from the backend (not per-day minutes for 30d),
-    // so we mark streak days accurately and leave the rest dark.
+
+    // Streak cells
     streakCells: Array.from({ length: 30 }, (_, i) => {
-      const ago = 29 - i; // 0 = today, 29 = 29 days ago
-      return {
-        d: i,
-        v: ago < streakDays ? (ago === 0 ? 4 : 3) : 0,
-      };
+      const ago = 29 - i;
+      return { d: i, v: ago < streakDays ? (ago === 0 ? 4 : 3) : 0 };
     }),
-    timeline: (raw.timeline || []).map((b): TimelineEntry => ({
-      from: b.start,
-      to: b.end,
-      project: b.repo || null,
-      branch: b.branch || null,
-      focus: b.focus || 0,
+
+    // Timeline
+    timeline: (p.timeline || []).map((b): TimelineEntry => ({
+      from:     b.start,
+      to:       b.end,
+      project:  b.repo    || null,
+      branch:   b.branch  || null,
+      focus:    b.focus   || 0,
       switches: b.switches || 0,
-      ai: b.ai || null,
+      ai:       b.ai      || null,
     })),
-    aiRecap: raw.ai_recap || null,
-    aiPerBlock: raw.ai_per_block || 0,
-    aiTools: (raw.ai_tools || []) as ToolSummary[],
-    hasData: (raw.total_blocks || 0) > 0 || (raw.ai_tools || []).length > 0,
-    calDays: (raw.cal_days || []) as CalDay[],
-    monthBars: (raw.month_bars || []) as MonthBar[],
-    trackingSince: raw.tracking_since || "",
-    activeDays: raw.active_days || 0,
-    bestDayDate: raw.best_day_date || "",
-    bestDayMin: raw.best_day_min || 0,
+
+    // AI sessions
+    aiTools: (p.ai_tools || []) as ToolSummary[],
+
+    // Calendar / all-time heatmap data
+    calDays:    (p.cal_days    || []) as CalDay[],
+    monthBars:  (p.month_bars  || []) as MonthBar[],
+
+    // Derived period stats
+    trackingSince: p.tracking_since || "",
+    activeDays:    p.active_days    || 0,
+    bestDayDate:   p.best_day_date  || "",
+    bestDayMin:    p.best_day_min   || 0,
+
+    // hasData: period exists in the payload and has some activity
+    hasData: !!(raw.periods?.[period] &&
+      ((p.total_blocks || 0) > 0 || (p.ai_tools || []).length > 0)),
+
+    // anyData: at least one period has data (for the overall empty state)
+    anyData: Object.values(raw.periods || {}).some(
+      (pd) => (pd.total_blocks || 0) > 0 || (pd.ai_tools || []).length > 0
+    ),
   };
 }
 

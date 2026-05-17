@@ -16,7 +16,9 @@ import (
 	"github.com/mahi160/flowd/internal/ai_sessions"
 )
 
-// calDay holds activity for a single calendar day (used by month/year heatmaps).
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+// calDay holds activity for a single calendar day (month/year heatmap).
 type calDay struct {
 	Date   string `json:"date"`   // "2026-05-17"
 	Dow    int    `json:"dow"`    // 0=Sunday … 6=Saturday (Go time.Weekday)
@@ -24,47 +26,13 @@ type calDay struct {
 	Blocks int    `json:"blocks"`
 }
 
-// monthBar holds aggregated activity for one calendar month (used by year/all heatmaps).
+// monthBar holds aggregated activity for one calendar month (all-time chart).
 type monthBar struct {
-	YM     string `json:"ym"`    // "2026-05"
-	Year   int    `json:"year"`
-	Month  int    `json:"month"` // 1-12
-	Min    int    `json:"min"`
-	Blocks int    `json:"blocks"`
-}
-
-//go:embed static
-var staticFiles embed.FS
-
-type dashPayload struct {
-	Period        string                    `json:"period"`
-	Generated     string                    `json:"generated"`
-	TotalFocusMin int                       `json:"total_focus_min"`
-	TotalBlocks   int                       `json:"total_blocks"`
-	TotalSwitches int                       `json:"total_switches"`
-	FilesChanged  int                       `json:"files_changed"`
-	LinesAdded    int                       `json:"lines_added"`
-	LinesRemoved  int                       `json:"lines_removed"`
-	ByProject     map[string]int            `json:"by_project"`
-	ByTool        map[string]int            `json:"by_tool"`
-	Languages     map[string]int            `json:"languages"`
-	Heatmap       []hourBucket              `json:"heatmap"`
-	CalDays       []calDay                  `json:"cal_days,omitempty"`
-	MonthBars     []monthBar                `json:"month_bars,omitempty"`
-	Timeline      []tlBlock                 `json:"timeline"`
-	StreakDays    int                       `json:"streak_days"`
-	TopRepo       string                    `json:"top_repo"`
-	TopBranch     string                    `json:"top_branch"`
-	AIRecap       string                    `json:"ai_recap"`
-	AIPerBlock    int                       `json:"ai_per_block"`
-	AITools       []ai_sessions.ToolSummary `json:"ai_tools"`
-	Machine       string                    `json:"machine"`
-	OS            string                    `json:"os"`
-	// Derived stats surfaced per period
-	TrackingSince string                    `json:"tracking_since,omitempty"` // first block date
-	ActiveDays    int                       `json:"active_days"`              // days with >0 focus
-	BestDayDate   string                    `json:"best_day_date,omitempty"`  // date of max daily focus
-	BestDayMin    int                       `json:"best_day_min"`             // minutes on best day
+	YM    string `json:"ym"`    // "2026-05"
+	Year  int    `json:"year"`
+	Month int    `json:"month"` // 1-12
+	Min   int    `json:"min"`
+	Blocks int   `json:"blocks"`
 }
 
 type hourBucket struct {
@@ -83,7 +51,7 @@ type tlBlock struct {
 	AI       string `json:"ai,omitempty"`
 }
 
-// aiRawRow is the DB row for ai_sessions_raw.
+// aiRawRow is a DB row for ai_sessions_raw.
 type aiRawRow struct {
 	Tool        string
 	Project     string
@@ -96,134 +64,56 @@ type aiRawRow struct {
 	Cost        float64
 }
 
-// buildCalDays generates one calDay per calendar day in the period,
-// filling in focused minutes from the supplied blocks.
-func buildCalDays(period string, blocks []Block, now time.Time) []calDay {
-	type dd struct{ min, blocks int }
-	byDate := map[string]dd{}
-	for _, b := range blocks {
-		key := b.StartTS.Local().Format("2006-01-02")
-		d := byDate[key]
-		d.min += b.FocusedMin
-		d.blocks++
-		byDate[key] = d
-	}
-
-	var start, end time.Time
-	loc := now.Location()
-	y, m, day := now.Date()
-	switch period {
-	case "month":
-		start = time.Date(y, m, 1, 0, 0, 0, 0, loc)
-		end = time.Date(y, m+1, 1, 0, 0, 0, 0, loc)
-	case "year":
-		start = time.Date(y, 1, 1, 0, 0, 0, 0, loc)
-		end = time.Date(y+1, 1, 1, 0, 0, 0, 0, loc)
-	default:
-		return nil
-	}
-	// Never go past today.
-	today := time.Date(y, m, day, 0, 0, 0, 0, loc).Add(24 * time.Hour)
-	if end.After(today) {
-		end = today
-	}
-
-	var out []calDay
-	for d := start; d.Before(end); d = d.AddDate(0, 0, 1) {
-		key := d.Format("2006-01-02")
-		val := byDate[key]
-		out = append(out, calDay{
-			Date:   key,
-			Dow:    int(d.Weekday()),
-			Min:    val.min,
-			Blocks: val.blocks,
-		})
-	}
-	return out
+// periodData holds all dashboard data for a single time period.
+type periodData struct {
+	TotalFocusMin int                       `json:"total_focus_min"`
+	TotalBlocks   int                       `json:"total_blocks"`
+	TotalSwitches int                       `json:"total_switches"`
+	FilesChanged  int                       `json:"files_changed"`
+	LinesAdded    int                       `json:"lines_added"`
+	LinesRemoved  int                       `json:"lines_removed"`
+	ByProject     map[string]int            `json:"by_project"`
+	ByTool        map[string]int            `json:"by_tool"`
+	Languages     map[string]int            `json:"languages"`
+	Heatmap       []hourBucket              `json:"heatmap"`
+	CalDays       []calDay                  `json:"cal_days,omitempty"`
+	MonthBars     []monthBar                `json:"month_bars,omitempty"`
+	Timeline      []tlBlock                 `json:"timeline"`
+	TopRepo       string                    `json:"top_repo"`
+	TopBranch     string                    `json:"top_branch"`
+	AITools       []ai_sessions.ToolSummary `json:"ai_tools"`
+	TrackingSince string                    `json:"tracking_since,omitempty"`
+	ActiveDays    int                       `json:"active_days"`
+	BestDayDate   string                    `json:"best_day_date,omitempty"`
+	BestDayMin    int                       `json:"best_day_min"`
 }
 
-// buildMonthBars aggregates blocks into per-calendar-month totals.
-func buildMonthBars(blocks []Block) []monthBar {
-	type md struct{ min, blocks int }
-	byYM := map[string]md{}
-	var order []string
-	for _, b := range blocks {
-		ym := b.StartTS.Local().Format("2006-01")
-		if _, ok := byYM[ym]; !ok {
-			order = append(order, ym)
-		}
-		d := byYM[ym]
-		d.min += b.FocusedMin
-		d.blocks++
-		byYM[ym] = d
-	}
-	sort.Strings(order)
-
-	var out []monthBar
-	for _, ym := range order {
-		t, _ := time.Parse("2006-01", ym)
-		d := byYM[ym]
-		out = append(out, monthBar{
-			YM:     ym,
-			Year:   t.Year(),
-			Month:  int(t.Month()),
-			Min:    d.min,
-			Blocks: d.blocks,
-		})
-	}
-	return out
+// dashPayload is the top-level JSON blob injected into the HTML.
+// It contains pre-built data for ALL periods so every tab works immediately.
+type dashPayload struct {
+	InitialPeriod string                  `json:"initial_period"`
+	Generated     string                  `json:"generated"`
+	Machine       string                  `json:"machine"`
+	OS            string                  `json:"os"`
+	StreakDays    int                     `json:"streak_days"`
+	AIRecap       string                  `json:"ai_recap,omitempty"`
+	Periods       map[string]*periodData  `json:"periods"`
 }
 
-// derivedStats computes extra period-level stats from blocks.
-func derivedStats(blocks []Block) (trackingSince, bestDayDate string, bestDayMin, activeDays int) {
-	type dd struct{ min int }
-	byDate := map[string]dd{}
-	for _, b := range blocks {
-		if b.StartTS.IsZero() {
-			continue
-		}
-		key := b.StartTS.Local().Format("2006-01-02")
-		d := byDate[key]
-		d.min += b.FocusedMin
-		byDate[key] = d
-	}
-	for date, d := range byDate {
-		if d.min > 0 {
-			activeDays++
-			if d.min > bestDayMin {
-				bestDayMin = d.min
-				bestDayDate = date
-			}
-		}
-	}
-	if len(blocks) > 0 {
-		first := blocks[0].StartTS
-		for _, b := range blocks {
-			if !b.StartTS.IsZero() && b.StartTS.Before(first) {
-				first = b.StartTS
-			}
-		}
-		if !first.IsZero() {
-			trackingSince = first.Local().Format("2 Jan 2006")
-		}
-	}
-	return
-}
+//go:embed static
+var staticFiles embed.FS
 
-func buildDashPayload(period string, blocks []Block, aiRows []aiRawRow, streakDays int) dashPayload {
-	pl := GetPlatform()
-	p := dashPayload{
-		Period:     period,
-		Generated:  time.Now().Local().Format("Mon 02 Jan, 15:04"),
-		ByProject:  map[string]int{},
-		ByTool:     map[string]int{},
-		Languages:  map[string]int{},
-		Machine:    pl.Machine,
-		OS:         pl.OS,
-		StreakDays: streakDays,
+// ── Per-period builder ────────────────────────────────────────────────────────
+
+func buildPeriodData(period string, blocks []Block, aiRows []aiRawRow, now time.Time) *periodData {
+	p := &periodData{
+		ByProject: map[string]int{},
+		ByTool:    map[string]int{},
+		Languages: map[string]int{},
 	}
 	repoMin := map[string]int{}
 	repoBranch := map[string]string{}
+
 	for _, b := range blocks {
 		p.TotalFocusMin += b.FocusedMin
 		p.TotalSwitches += b.Switches
@@ -254,9 +144,6 @@ func buildDashPayload(period string, blocks []Block, aiRows []aiRawRow, streakDa
 			Switches: b.Switches,
 			AI:       b.AISummary,
 		})
-		if b.AISummary != "" {
-			p.AIPerBlock++
-		}
 	}
 	p.TotalBlocks = len(blocks)
 	p.TopRepo = topKey(repoMin)
@@ -264,7 +151,6 @@ func buildDashPayload(period string, blocks []Block, aiRows []aiRawRow, streakDa
 	p.Heatmap = buildHeatmap(period, blocks)
 	p.AITools = aggregateAISessions(aiRows)
 
-	now := time.Now()
 	switch period {
 	case "month", "year":
 		p.CalDays = buildCalDays(period, blocks, now)
@@ -275,11 +161,168 @@ func buildDashPayload(period string, blocks []Block, aiRows []aiRawRow, streakDa
 	return p
 }
 
+// ── Top-level builder ─────────────────────────────────────────────────────────
+
+func buildDashPayload(
+	initialPeriod string,
+	allBlocks map[string][]Block,
+	allAIRows map[string][]aiRawRow,
+	streakDays int,
+) dashPayload {
+	pl := GetPlatform()
+	now := time.Now()
+	payload := dashPayload{
+		InitialPeriod: initialPeriod,
+		Generated:     now.Local().Format("Mon 02 Jan, 15:04"),
+		Machine:       pl.Machine,
+		OS:            pl.OS,
+		StreakDays:    streakDays,
+		Periods:       map[string]*periodData{},
+	}
+	for period, blocks := range allBlocks {
+		payload.Periods[period] = buildPeriodData(period, blocks, allAIRows[period], now)
+	}
+	return payload
+}
+
+// ── Helper builders ───────────────────────────────────────────────────────────
+
+func buildCalDays(period string, blocks []Block, now time.Time) []calDay {
+	type dd struct{ min, blocks int }
+	byDate := map[string]dd{}
+	for _, b := range blocks {
+		key := b.StartTS.Local().Format("2006-01-02")
+		d := byDate[key]
+		d.min += b.FocusedMin
+		d.blocks++
+		byDate[key] = d
+	}
+
+	loc := now.Location()
+	y, m, day := now.Date()
+	var start, end time.Time
+	switch period {
+	case "month":
+		start = time.Date(y, m, 1, 0, 0, 0, 0, loc)
+		end = time.Date(y, m+1, 1, 0, 0, 0, 0, loc)
+	case "year":
+		start = time.Date(y, 1, 1, 0, 0, 0, 0, loc)
+		end = time.Date(y+1, 1, 1, 0, 0, 0, 0, loc)
+	default:
+		return nil
+	}
+	today := time.Date(y, m, day, 0, 0, 0, 0, loc).Add(24 * time.Hour)
+	if end.After(today) {
+		end = today
+	}
+
+	var out []calDay
+	for d := start; d.Before(end); d = d.AddDate(0, 0, 1) {
+		key := d.Format("2006-01-02")
+		val := byDate[key]
+		out = append(out, calDay{Date: key, Dow: int(d.Weekday()), Min: val.min, Blocks: val.blocks})
+	}
+	return out
+}
+
+func buildMonthBars(blocks []Block) []monthBar {
+	type md struct{ min, blocks int }
+	byYM := map[string]md{}
+	var order []string
+	for _, b := range blocks {
+		ym := b.StartTS.Local().Format("2006-01")
+		if _, ok := byYM[ym]; !ok {
+			order = append(order, ym)
+		}
+		d := byYM[ym]
+		d.min += b.FocusedMin
+		d.blocks++
+		byYM[ym] = d
+	}
+	sort.Strings(order)
+
+	var out []monthBar
+	for _, ym := range order {
+		t, _ := time.Parse("2006-01", ym)
+		d := byYM[ym]
+		out = append(out, monthBar{YM: ym, Year: t.Year(), Month: int(t.Month()), Min: d.min, Blocks: d.blocks})
+	}
+	return out
+}
+
+func derivedStats(blocks []Block) (trackingSince, bestDayDate string, bestDayMin, activeDays int) {
+	byDate := map[string]int{}
+	for _, b := range blocks {
+		if b.StartTS.IsZero() {
+			continue
+		}
+		byDate[b.StartTS.Local().Format("2006-01-02")] += b.FocusedMin
+	}
+	for date, min := range byDate {
+		if min > 0 {
+			activeDays++
+			if min > bestDayMin {
+				bestDayMin = min
+				bestDayDate = date
+			}
+		}
+	}
+	if len(blocks) > 0 {
+		first := blocks[0].StartTS
+		for _, b := range blocks {
+			if !b.StartTS.IsZero() && b.StartTS.Before(first) {
+				first = b.StartTS
+			}
+		}
+		if !first.IsZero() {
+			trackingSince = first.Local().Format("2 Jan 2006")
+		}
+	}
+	return
+}
+
+func buildHeatmap(period string, blocks []Block) []hourBucket {
+	if period == "week" {
+		bm := map[string]map[int]int{}
+		for _, b := range blocks {
+			day := b.StartTS.Local().Format("Mon 02")
+			h := b.StartTS.Local().Hour()
+			if bm[day] == nil {
+				bm[day] = map[int]int{}
+			}
+			bm[day][h] += b.FocusedMin
+		}
+		var out []hourBucket
+		now := time.Now().Local()
+		for i := 6; i >= 0; i-- {
+			d := now.AddDate(0, 0, -i)
+			label := d.Format("Mon 02")
+			row := bm[label]
+			for h := 0; h < 24; h++ {
+				out = append(out, hourBucket{Day: label, Hour: h, Minute: row[h]})
+			}
+		}
+		return out
+	}
+	// today: 48 half-hour buckets
+	buckets := make([]int, 48)
+	for _, b := range blocks {
+		l := b.StartTS.Local()
+		idx := l.Hour()*2 + l.Minute()/30
+		if idx >= 0 && idx < 48 {
+			buckets[idx] += b.FocusedMin
+		}
+	}
+	out := make([]hourBucket, 48)
+	for i, m := range buckets {
+		out[i] = hourBucket{Day: "Today", Hour: i, Minute: m}
+	}
+	return out
+}
+
 // aggregateAISessions groups raw rows into per-tool summaries with session detail.
 func aggregateAISessions(rows []aiRawRow) []ai_sessions.ToolSummary {
-	type sessKey struct {
-		tool, sessionID string
-	}
+	type sessKey struct{ tool, sessionID string }
 	type sessAccum struct {
 		project              string
 		model                map[string]int
@@ -291,15 +334,12 @@ func aggregateAISessions(rows []aiRawRow) []ai_sessions.ToolSummary {
 
 	tools := map[string]*ai_sessions.ToolSummary{}
 	sessions := map[sessKey]*sessAccum{}
-	toolOrder := []string{}
+	var toolOrder []string
 
 	for _, r := range rows {
 		ts, ok := tools[r.Tool]
 		if !ok {
-			ts = &ai_sessions.ToolSummary{
-				Tool:           r.Tool,
-				ModelBreakdown: map[string]int{},
-			}
+			ts = &ai_sessions.ToolSummary{Tool: r.Tool, ModelBreakdown: map[string]int{}}
 			tools[r.Tool] = ts
 			toolOrder = append(toolOrder, r.Tool)
 		}
@@ -315,12 +355,7 @@ func aggregateAISessions(rows []aiRawRow) []ai_sessions.ToolSummary {
 		sk := sessKey{r.Tool, r.SessionID}
 		sa, ok := sessions[sk]
 		if !ok {
-			sa = &sessAccum{
-				project: r.Project,
-				model:   map[string]int{},
-				start:   r.Timestamp,
-				end:     r.Timestamp,
-			}
+			sa = &sessAccum{project: r.Project, model: map[string]int{}, start: r.Timestamp, end: r.Timestamp}
 			sessions[sk] = sa
 		}
 		sa.input += r.TokensRead
@@ -363,8 +398,6 @@ func aggregateAISessions(rows []aiRawRow) []ai_sessions.ToolSummary {
 				MessageCount: sa.messages,
 			})
 		}
-		// Sort sessions newest-first using the real Unix timestamp, not the
-		// formatted string (avoids midnight-crossover string sort bugs).
 		sort.Slice(ts.Sessions, func(i, j int) bool {
 			return ts.Sessions[i].StartUnix > ts.Sessions[j].StartUnix
 		})
@@ -373,47 +406,9 @@ func aggregateAISessions(rows []aiRawRow) []ai_sessions.ToolSummary {
 	return result
 }
 
-func buildHeatmap(period string, blocks []Block) []hourBucket {
-	if period == "week" {
-		bm := map[string]map[int]int{}
-		for _, b := range blocks {
-			day := b.StartTS.Local().Format("Mon 02")
-			h := b.StartTS.Local().Hour()
-			if bm[day] == nil {
-				bm[day] = map[int]int{}
-			}
-			bm[day][h] += b.FocusedMin
-		}
-		var out []hourBucket
-		now := time.Now().Local()
-		for i := 6; i >= 0; i-- {
-			d := now.AddDate(0, 0, -i)
-			label := d.Format("Mon 02")
-			row := bm[label]
-			for h := 0; h < 24; h++ {
-				out = append(out, hourBucket{Day: label, Hour: h, Minute: row[h]})
-			}
-		}
-		return out
-	}
-	buckets := make([]int, 48)
-	for _, b := range blocks {
-		l := b.StartTS.Local()
-		idx := l.Hour()*2 + l.Minute()/30
-		if idx >= 0 && idx < 48 {
-			buckets[idx] += b.FocusedMin
-		}
-	}
-	out := make([]hourBucket, 48)
-	for i, m := range buckets {
-		out[i] = hourBucket{Day: "Today", Hour: i, Minute: m}
-	}
-	return out
-}
+// ── Rendering ─────────────────────────────────────────────────────────────────
 
-// hasGitRemote returns true if a push remote is available — either from the
-// config field or from an existing "origin" already set on the repo.
-// Callers should cache the result for the lifetime of the daemon session.
+// hasGitRemote returns true if a push remote is available.
 func hasGitRemote(cfg *Config) bool {
 	if cfg.GitRemote != "" {
 		return true
@@ -423,15 +418,12 @@ func hasGitRemote(cfg *Config) bool {
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
-// RenderDashboard writes the static dashboard HTML.
-func RenderDashboard(blocks []Block, aiRows []aiRawRow, period, aiRecap string, streakDays int, outPath string) error {
-	data := buildDashPayload(period, blocks, aiRows, streakDays)
-	data.AIRecap = aiRecap
-	js, err := json.Marshal(data)
+// RenderDashboard writes the single-file HTML dashboard.
+func RenderDashboard(payload dashPayload, outPath string) error {
+	js, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-
 	tmpl, err := staticFiles.ReadFile("static/dashboard.html")
 	if err != nil {
 		return err
@@ -440,7 +432,6 @@ func RenderDashboard(blocks []Block, aiRows []aiRawRow, period, aiRecap string, 
 		return fmt.Errorf("dashboard template missing __FLOWD_PAYLOAD_JSON__ placeholder")
 	}
 	html := strings.Replace(string(tmpl), "__FLOWD_PAYLOAD_JSON__", string(js), 1)
-
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o750); err != nil {
 		return err
 	}

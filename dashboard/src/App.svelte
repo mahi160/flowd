@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { Data } from "./lib/transform";
+  import type { RawPayload } from "./lib/types";
+  import { transform } from "./lib/transform";
   import { loadTheme, cycleTheme, resolveTheme, saveTheme } from "./lib/theme";
   import Header from "./components/Header.svelte";
   import HeroStrip from "./components/HeroStrip.svelte";
@@ -14,11 +15,15 @@
   import Timeline from "./components/Timeline.svelte";
   import WeekBars from "./components/WeekBars.svelte";
 
-  let { data }: { data: Data } = $props();
+  let { raw }: { raw: RawPayload } = $props();
 
-  const initialPeriod = data.period;
-  let view = $state(initialPeriod);
+  // Start on the period the Go command was invoked with, or "today".
+  let view = $state(raw.initial_period || "today");
   let theme = $state(loadTheme());
+
+  // Re-transform whenever the selected tab changes — all period data is already
+  // embedded in the payload so this is pure CPU, no network round-trips.
+  let data = $derived(transform(raw, view));
 
   $effect(() => {
     const resolved = resolveTheme(theme);
@@ -27,54 +32,33 @@
     document.documentElement.classList.toggle("light", resolved === "light");
     saveTheme(theme);
   });
-
-  function onCycleTheme() {
-    theme = cycleTheme(theme);
-  }
-
-  const PERIOD_LABELS: Record<string, string> = {
-    today: "today",
-    week: "this week",
-    month: "this month",
-    year: "this year",
-    all: "all time",
-  };
 </script>
 
 <div class="min-h-screen max-w-[1480px] mx-auto px-6 py-8 md:px-10">
-  <Header {data} {view} {theme} onSetView={(v) => (view = v)} {onCycleTheme} />
+  <Header {data} {view} {theme} onSetView={(v) => (view = v)} onCycleTheme={() => (theme = cycleTheme(theme))} />
 
-  {#if !data.hasData}
-    <!-- ── Empty state ─────────────────────────────────────────── -->
-    <main class="flex flex-col gap-5">
+  {#if !data.anyData}
+    <!-- ── Global empty state (no data at all) ───────────────────── -->
+    <main>
       <div class="rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-900
-                  shadow-sm flex flex-col items-center justify-center min-h-[280px] text-center gap-2.5 p-8">
+                  shadow-sm flex flex-col items-center justify-center min-h-[280px] text-center gap-3 p-8">
         <h2 class="font-display text-xl text-stone-500">No activity yet</h2>
         <p class="text-stone-400 text-xs">Start the daemon to begin tracking.</p>
         <code class="bg-stone-100 dark:bg-stone-800 px-2 py-0.5 rounded font-mono text-xs">fw start</code>
       </div>
     </main>
 
-  {:else if view !== data.period}
-    <!-- ── Wrong period: prompt user to regenerate ─────────────── -->
-    <main class="flex flex-col gap-5">
+  {:else if !data.hasData}
+    <!-- ── Period-specific empty state ───────────────────────────── -->
+    <main>
       <div class="rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-900
-                  shadow-sm flex flex-col items-center justify-center min-h-[280px] text-center gap-3 p-8">
-        <h2 class="font-display text-xl text-stone-500">
-          {PERIOD_LABELS[view] ?? view} view
-        </h2>
-        <p class="text-stone-400 text-xs max-w-xs">
-          This dashboard was generated for <strong class="text-stone-600 dark:text-stone-300">{data.period}</strong>.
-          To see {PERIOD_LABELS[view] ?? view} data, regenerate:
-        </p>
-        <code class="bg-stone-100 dark:bg-stone-800 px-3 py-1 rounded font-mono text-xs">
-          fw dashboard {view}
-        </code>
+                  shadow-sm flex flex-col items-center justify-center min-h-[280px] text-center gap-2.5 p-8">
+        <h2 class="font-display text-xl text-stone-500">No {view} activity</h2>
+        <p class="text-stone-400 text-xs">Nothing tracked for this period yet.</p>
       </div>
     </main>
 
   {:else if view === "today"}
-    <!-- ── Today ───────────────────────────────────────────────── -->
     <main class="flex flex-col gap-5">
       <HeroStrip {data} label="today" />
       <div class="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-5">
@@ -91,7 +75,6 @@
     </main>
 
   {:else if view === "week"}
-    <!-- ── Week ────────────────────────────────────────────────── -->
     <main class="flex flex-col gap-5">
       <HeroStrip {data} label="this week" />
       {#if data.weekDays.length > 0}<WeekBars {data} />{/if}
@@ -109,7 +92,6 @@
     </main>
 
   {:else if view === "month"}
-    <!-- ── Month ───────────────────────────────────────────────── -->
     <main class="flex flex-col gap-5">
       <HeroStrip {data} label="this month" />
       <CalHeatmap {data} />
@@ -126,7 +108,6 @@
     </main>
 
   {:else if view === "year"}
-    <!-- ── Year ────────────────────────────────────────────────── -->
     <main class="flex flex-col gap-5">
       <HeroStrip {data} label="this year" />
       <CalHeatmap {data} />
@@ -143,7 +124,6 @@
     </main>
 
   {:else if view === "all"}
-    <!-- ── All time ─────────────────────────────────────────────── -->
     <main class="flex flex-col gap-5">
       <HeroStrip {data} label="all time" />
       <AllHeatmap {data} />

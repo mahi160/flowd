@@ -6,7 +6,8 @@
     data, view, theme, onSetView, onCycleTheme,
   }: {
     data: Data; view: string; theme: Theme;
-    onSetView: (v: string) => void; onCycleTheme: () => void;
+    onSetView: (v: string) => void;
+    onCycleTheme: () => void;
   } = $props();
 
   const themeIcon: Record<string, string> = { dark: "🌙", light: "☀️", system: "💻" };
@@ -60,7 +61,7 @@
                  {p.id === view
                    ? 'bg-white dark:bg-stone-700 text-stone-900 dark:text-white shadow-sm'
                    : 'text-stone-500 hover:text-stone-700 dark:hover:text-stone-300'}"
-          title={PERIOD_TIPS[p.id]}
+          title="{PERIOD_TIPS[p.id]} — all tabs pre-loaded, switch freely"
           onclick={() => onSetView(p.id)}
         >{p.label}</button>
       {/each}

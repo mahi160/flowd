@@ -153,8 +153,11 @@ func cmdDashboard() *cobra.Command {
 	var noOpen, aiRecap bool
 	var outFlag string
 	c := &cobra.Command{
-		Use:   "dashboard [today|week]",
-		Short: "Render an HTML dashboard and open it in the browser",
+		Use:   "dashboard [today|week|month|year|all]",
+		Short: "Build a full interactive dashboard (all period tabs) and open it",
+		Long: `Loads data for all five periods (today, week, month, year, all) in one
+pass so every tab in the dashboard works immediately. The optional period
+argument sets which tab is shown first (default: today).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := LoadConfig(cfgPath)
 			if err != nil {
@@ -165,48 +168,60 @@ func cmdDashboard() *cobra.Command {
 				return err
 			}
 			defer d.Close()
-			initPlatform(cfg.MachineName) // needed so dashboard shows configured name, not hostname
+			initPlatform(cfg.MachineName)
 
-			period := "today"
+			// The optional arg sets the initial tab, not which data to load.
+			initialPeriod := "today"
 			if len(args) > 0 {
-				period = args[0]
-			}
-			valid := map[string]bool{"today": true, "week": true, "month": true, "year": true, "all": true}
-			if !valid[period] {
-				return fmt.Errorf("invalid period %q (want today, week, month, year, or all)", period)
-			}
-
-			start, end := PeriodRange(period, time.Now())
-			blocks, err := LoadBlocks(cmd.Context(), d, start, end)
-			if err != nil {
-				return err
+				valid := map[string]bool{"today": true, "week": true, "month": true, "year": true, "all": true}
+				if !valid[args[0]] {
+					return fmt.Errorf("invalid period %q (want today, week, month, year, or all)", args[0])
+				}
+				initialPeriod = args[0]
 			}
 
-			// Streak uses all historical blocks, not just the current period.
+			// Load blocks and AI rows for every period.
+			allPeriods := []string{"today", "week", "month", "year", "all"}
+			allBlocks := map[string][]Block{}
+			allAIRows := map[string][]aiRawRow{}
+			for _, p := range allPeriods {
+				start, end := PeriodRange(p, time.Now())
+				blocks, err := LoadBlocks(cmd.Context(), d, start, end)
+				if err != nil {
+					return fmt.Errorf("load blocks for %s: %w", p, err)
+				}
+				allBlocks[p] = blocks
+				rows, err := loadAIRows(cmd.Context(), d, start, end)
+				if err != nil {
+					slog.Warn("load ai sessions", "period", p, "err", err)
+				}
+				allAIRows[p] = rows
+			}
+
+			// Streak uses all historical blocks.
 			streakDays := d.QueryStreak(cmd.Context())
 
-			aiRows, err := loadAIRows(cmd.Context(), d, start, end)
-			if err != nil {
-				slog.Warn("load ai sessions", "err", err)
-			}
+			payload := buildDashPayload(initialPeriod, allBlocks, allAIRows, streakDays)
 
-			recap := ""
+			// AI recap runs on the initial period's blocks when requested.
 			if aiRecap {
 				if !cfg.AIEnabled || cfg.AICommand == "" {
 					fmt.Println("note: --ai-recap requires ai_enabled + ai_command in config; skipping")
 				} else {
-					recap, err = runAIRecap(cmd.Context(), cfg, blocks, period)
+					recap, err := runAIRecap(cmd.Context(), cfg, allBlocks[initialPeriod], initialPeriod)
 					if err != nil {
 						fmt.Printf("note: ai recap failed: %v\n", err)
+					} else {
+						payload.AIRecap = recap
 					}
 				}
 			}
 
 			out := outFlag
 			if out == "" {
-				out = filepath.Join(os.TempDir(), fmt.Sprintf("flowd-%s.html", period))
+				out = filepath.Join(os.TempDir(), "flowd.html")
 			}
-			if err := RenderDashboard(blocks, aiRows, period, recap, streakDays, out); err != nil {
+			if err := RenderDashboard(payload, out); err != nil {
 				return err
 			}
 			fmt.Printf("dashboard → %s\n", out)
@@ -219,8 +234,8 @@ func cmdDashboard() *cobra.Command {
 		},
 	}
 	c.Flags().BoolVar(&noOpen, "no-open", false, "do not open the browser")
-	c.Flags().BoolVar(&aiRecap, "ai-recap", false, "run AI on all blocks for an aggregate recap (slow)")
-	c.Flags().StringVar(&outFlag, "out", "", "output file path (default: temp dir)")
+	c.Flags().BoolVar(&aiRecap, "ai-recap", false, "run AI on the initial period's blocks (slow)")
+	c.Flags().StringVar(&outFlag, "out", "", "output file path (default: $TMPDIR/flowd.html)")
 	return c
 }
 
