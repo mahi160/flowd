@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Data } from "../lib/transform";
+  import Tooltip from "./Tooltip.svelte";
 
   let { data }: { data: Data } = $props();
   let entries = $derived([...data.timeline].reverse());
@@ -8,7 +9,9 @@
 
 <section class="rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-900 shadow-sm dark:shadow-stone-950/30 p-5">
   <div class="flex items-baseline gap-3 mb-4">
-    <h3 class="font-display text-lg text-stone-900 dark:text-stone-100">Timeline</h3>
+    <Tooltip text="Each row is one completed focus block. The progress bar shows relative focus length. AI summaries (indented quote) appear when ai_command is configured and the block hit the threshold.">
+      <h3 class="font-display text-lg text-stone-900 dark:text-stone-100">Timeline</h3>
+    </Tooltip>
     <span class="text-[11px] font-mono text-stone-400">newest first</span>
   </div>
   {#if !entries.length}

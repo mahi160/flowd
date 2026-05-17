@@ -1,3 +1,18 @@
+export type CalDay = {
+  date: string;   // "2026-05-17"
+  dow: number;    // 0=Sun … 6=Sat
+  min: number;
+  blocks: number;
+};
+
+export type MonthBar = {
+  ym: string;    // "2026-05"
+  year: number;
+  month: number; // 1-12
+  min: number;
+  blocks: number;
+};
+
 export type RawPayload = {
   period?: "today" | "week" | string;
   generated?: string;
@@ -11,6 +26,12 @@ export type RawPayload = {
   by_tool?: Record<string, number>;
   languages?: Record<string, number>;
   heatmap?: { day: string; hour: number; minute: number }[];
+  cal_days?: CalDay[];
+  month_bars?: MonthBar[];
+  tracking_since?: string;
+  active_days?: number;
+  best_day_date?: string;
+  best_day_min?: number;
   timeline?: {
     start: string;
     end: string;

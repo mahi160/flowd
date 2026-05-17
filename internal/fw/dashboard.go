@@ -16,6 +16,23 @@ import (
 	"github.com/mahi160/flowd/internal/ai_sessions"
 )
 
+// calDay holds activity for a single calendar day (used by month/year heatmaps).
+type calDay struct {
+	Date   string `json:"date"`   // "2026-05-17"
+	Dow    int    `json:"dow"`    // 0=Sunday … 6=Saturday (Go time.Weekday)
+	Min    int    `json:"min"`
+	Blocks int    `json:"blocks"`
+}
+
+// monthBar holds aggregated activity for one calendar month (used by year/all heatmaps).
+type monthBar struct {
+	YM     string `json:"ym"`    // "2026-05"
+	Year   int    `json:"year"`
+	Month  int    `json:"month"` // 1-12
+	Min    int    `json:"min"`
+	Blocks int    `json:"blocks"`
+}
+
 //go:embed static
 var staticFiles embed.FS
 
@@ -32,6 +49,8 @@ type dashPayload struct {
 	ByTool        map[string]int            `json:"by_tool"`
 	Languages     map[string]int            `json:"languages"`
 	Heatmap       []hourBucket              `json:"heatmap"`
+	CalDays       []calDay                  `json:"cal_days,omitempty"`
+	MonthBars     []monthBar                `json:"month_bars,omitempty"`
 	Timeline      []tlBlock                 `json:"timeline"`
 	StreakDays    int                       `json:"streak_days"`
 	TopRepo       string                    `json:"top_repo"`
@@ -41,6 +60,11 @@ type dashPayload struct {
 	AITools       []ai_sessions.ToolSummary `json:"ai_tools"`
 	Machine       string                    `json:"machine"`
 	OS            string                    `json:"os"`
+	// Derived stats surfaced per period
+	TrackingSince string                    `json:"tracking_since,omitempty"` // first block date
+	ActiveDays    int                       `json:"active_days"`              // days with >0 focus
+	BestDayDate   string                    `json:"best_day_date,omitempty"`  // date of max daily focus
+	BestDayMin    int                       `json:"best_day_min"`             // minutes on best day
 }
 
 type hourBucket struct {
@@ -70,6 +94,120 @@ type aiRawRow struct {
 	TokensWrite int
 	TokensCache int
 	Cost        float64
+}
+
+// buildCalDays generates one calDay per calendar day in the period,
+// filling in focused minutes from the supplied blocks.
+func buildCalDays(period string, blocks []Block, now time.Time) []calDay {
+	type dd struct{ min, blocks int }
+	byDate := map[string]dd{}
+	for _, b := range blocks {
+		key := b.StartTS.Local().Format("2006-01-02")
+		d := byDate[key]
+		d.min += b.FocusedMin
+		d.blocks++
+		byDate[key] = d
+	}
+
+	var start, end time.Time
+	loc := now.Location()
+	y, m, day := now.Date()
+	switch period {
+	case "month":
+		start = time.Date(y, m, 1, 0, 0, 0, 0, loc)
+		end = time.Date(y, m+1, 1, 0, 0, 0, 0, loc)
+	case "year":
+		start = time.Date(y, 1, 1, 0, 0, 0, 0, loc)
+		end = time.Date(y+1, 1, 1, 0, 0, 0, 0, loc)
+	default:
+		return nil
+	}
+	// Never go past today.
+	today := time.Date(y, m, day, 0, 0, 0, 0, loc).Add(24 * time.Hour)
+	if end.After(today) {
+		end = today
+	}
+
+	var out []calDay
+	for d := start; d.Before(end); d = d.AddDate(0, 0, 1) {
+		key := d.Format("2006-01-02")
+		val := byDate[key]
+		out = append(out, calDay{
+			Date:   key,
+			Dow:    int(d.Weekday()),
+			Min:    val.min,
+			Blocks: val.blocks,
+		})
+	}
+	return out
+}
+
+// buildMonthBars aggregates blocks into per-calendar-month totals.
+func buildMonthBars(blocks []Block) []monthBar {
+	type md struct{ min, blocks int }
+	byYM := map[string]md{}
+	var order []string
+	for _, b := range blocks {
+		ym := b.StartTS.Local().Format("2006-01")
+		if _, ok := byYM[ym]; !ok {
+			order = append(order, ym)
+		}
+		d := byYM[ym]
+		d.min += b.FocusedMin
+		d.blocks++
+		byYM[ym] = d
+	}
+	sort.Strings(order)
+
+	var out []monthBar
+	for _, ym := range order {
+		t, _ := time.Parse("2006-01", ym)
+		d := byYM[ym]
+		out = append(out, monthBar{
+			YM:     ym,
+			Year:   t.Year(),
+			Month:  int(t.Month()),
+			Min:    d.min,
+			Blocks: d.blocks,
+		})
+	}
+	return out
+}
+
+// derivedStats computes extra period-level stats from blocks.
+func derivedStats(blocks []Block) (trackingSince, bestDayDate string, bestDayMin, activeDays int) {
+	type dd struct{ min int }
+	byDate := map[string]dd{}
+	for _, b := range blocks {
+		if b.StartTS.IsZero() {
+			continue
+		}
+		key := b.StartTS.Local().Format("2006-01-02")
+		d := byDate[key]
+		d.min += b.FocusedMin
+		byDate[key] = d
+	}
+	for date, d := range byDate {
+		if d.min > 0 {
+			activeDays++
+			if d.min > bestDayMin {
+				bestDayMin = d.min
+				bestDayDate = date
+			}
+		}
+	}
+	if len(blocks) > 0 {
+		first := blocks[0].StartTS
+		for _, b := range blocks {
+			if !b.StartTS.IsZero() && b.StartTS.Before(first) {
+				first = b.StartTS
+			}
+		}
+		if !first.IsZero() {
+			trackingSince = first.Local().Format("2 Jan 2006")
+		}
+	}
+	return
 }
 
 func buildDashPayload(period string, blocks []Block, aiRows []aiRawRow, streakDays int) dashPayload {
@@ -125,6 +263,15 @@ func buildDashPayload(period string, blocks []Block, aiRows []aiRawRow, streakDa
 	p.TopBranch = repoBranch[p.TopRepo]
 	p.Heatmap = buildHeatmap(period, blocks)
 	p.AITools = aggregateAISessions(aiRows)
+
+	now := time.Now()
+	switch period {
+	case "month", "year":
+		p.CalDays = buildCalDays(period, blocks, now)
+	case "all":
+		p.MonthBars = buildMonthBars(blocks)
+	}
+	p.TrackingSince, p.BestDayDate, p.BestDayMin, p.ActiveDays = derivedStats(blocks)
 	return p
 }
 

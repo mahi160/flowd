@@ -109,14 +109,24 @@ func TextReport(blocks []Block, label string) string {
 
 // PeriodRange returns [start, end) for "today" or "week" anchored to local time.
 func PeriodRange(period string, now time.Time) (time.Time, time.Time) {
+	loc := now.Location()
+	y, m, d := now.Date()
 	switch period {
 	case "week":
-		y, m, d := now.Date()
-		end := time.Date(y, m, d, 0, 0, 0, 0, now.Location()).Add(24 * time.Hour)
+		end := time.Date(y, m, d, 0, 0, 0, 0, loc).Add(24 * time.Hour)
 		return end.AddDate(0, 0, -7), end
-	default:
-		y, m, d := now.Date()
-		start := time.Date(y, m, d, 0, 0, 0, 0, now.Location())
+	case "month":
+		start := time.Date(y, m, 1, 0, 0, 0, 0, loc)
+		return start, time.Date(y, m+1, 1, 0, 0, 0, 0, loc)
+	case "year":
+		return time.Date(y, 1, 1, 0, 0, 0, 0, loc),
+			time.Date(y+1, 1, 1, 0, 0, 0, 0, loc)
+	case "all":
+		// 10-year lookback safely covers all stored data.
+		return now.AddDate(-10, 0, 0),
+			time.Date(y, m, d, 0, 0, 0, 0, loc).Add(24 * time.Hour)
+	default: // "today"
+		start := time.Date(y, m, d, 0, 0, 0, 0, loc)
 		return start, start.Add(24 * time.Hour)
 	}
 }

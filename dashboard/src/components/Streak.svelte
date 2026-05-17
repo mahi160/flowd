@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Data } from "../lib/transform";
+  import Tooltip from "./Tooltip.svelte";
 
   let { data }: { data: Data } = $props();
   let s = $derived(data.streakDays);
@@ -10,7 +11,9 @@
 
 <section class="rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-900 shadow-sm dark:shadow-stone-950/30 p-5">
   <div class="flex items-baseline gap-3 mb-4">
-    <h3 class="font-display text-lg text-stone-900 dark:text-stone-100">Streak</h3>
+    <Tooltip text="Consecutive days with at least one focus block recorded. Today counts even if the day isn't finished. The grid shows the last 30 days — lit cells = streak, dark = gap.">
+      <h3 class="font-display text-lg text-stone-900 dark:text-stone-100">Streak</h3>
+    </Tooltip>
     <span class="text-[11px] font-mono text-stone-400">30 days</span>
   </div>
   <div class="flex items-end gap-3 mb-5">

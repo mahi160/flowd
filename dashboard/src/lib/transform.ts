@@ -1,4 +1,4 @@
-import type { RawPayload, Item, TimelineEntry, DayBucket, ToolSummary } from "./types";
+import type { RawPayload, Item, TimelineEntry, DayBucket, ToolSummary, CalDay, MonthBar } from "./types";
 
 // PALETTE removed - components use their own COLORS
 // // Components (Donut, Languages) maintain their own COLORS arrays.
@@ -79,6 +79,12 @@ export function transform(raw: RawPayload = {}) {
     aiPerBlock: raw.ai_per_block || 0,
     aiTools: (raw.ai_tools || []) as ToolSummary[],
     hasData: (raw.total_blocks || 0) > 0 || (raw.ai_tools || []).length > 0,
+    calDays: (raw.cal_days || []) as CalDay[],
+    monthBars: (raw.month_bars || []) as MonthBar[],
+    trackingSince: raw.tracking_since || "",
+    activeDays: raw.active_days || 0,
+    bestDayDate: raw.best_day_date || "",
+    bestDayMin: raw.best_day_min || 0,
   };
 }
 

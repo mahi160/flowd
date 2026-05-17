@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Data } from "../lib/transform";
   import { fmtHM } from "../lib/format";
+  import Tooltip from "./Tooltip.svelte";
 
   const COLORS = ["#6366f1","#f59e0b","#ef4444","#10b981","#8b5cf6","#ec4899","#14b8a6","#f97316"];
 
@@ -12,7 +13,9 @@
 
 <section class="rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-900 shadow-sm dark:shadow-stone-950/30 p-5">
   <div class="flex items-baseline gap-3 mb-4">
-    <h3 class="font-display text-lg text-stone-900 dark:text-stone-100">Languages</h3>
+    <Tooltip text="Languages inferred from git diff file extensions during editor time in each focus block. Time is distributed across languages proportionally by lines touched.">
+      <h3 class="font-display text-lg text-stone-900 dark:text-stone-100">Languages</h3>
+    </Tooltip>
     <span class="text-[11px] font-mono text-stone-400">by session time</span>
   </div>
   {#if !langs.length}
