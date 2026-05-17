@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>flowd — dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,100..900;1,9..144,100..900&family=JetBrains+Mono:wght@300;400;500;600&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
     <script>
       window.__FLOWD_DATA__ = __FLOWD_PAYLOAD_JSON__;
     </script>
@@ -12,7 +15,9 @@
         try {
           const saved = localStorage.getItem("fw-theme") || "system";
           const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-          document.documentElement.dataset.theme = saved === "system" ? (dark ? "dark" : "light") : saved;
+          const resolved = saved === "system" ? (dark ? "dark" : "light") : saved;
+          document.documentElement.dataset.theme = resolved;
+          document.documentElement.classList.toggle("dark", resolved === "dark");
         } catch {
           document.documentElement.dataset.theme = "dark";
         }
@@ -21,6 +26,6 @@
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

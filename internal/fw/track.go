@@ -50,11 +50,12 @@ type PaneMeta struct {
 }
 
 type Tracker struct {
-	db        *DB
-	interval  time.Duration
-	idleSec   int
-	watchDirs []string
-	last      *Pane
+	db           *DB
+	interval     time.Duration
+	idleSec      int
+	watchDirs    []string
+	last         *Pane
+	repoCache    map[string]string // cwd → repo name (avoids a git subprocess per poll)
 }
 
 func NewTracker(d *DB, pollSec, idleSec int, watchDirs []string) *Tracker {
@@ -67,6 +68,7 @@ func NewTracker(d *DB, pollSec, idleSec int, watchDirs []string) *Tracker {
 		interval:  time.Duration(pollSec) * time.Second,
 		idleSec:   idleSec,
 		watchDirs: dirs,
+		repoCache: map[string]string{},
 	}
 }
 
@@ -127,7 +129,12 @@ func (t *Tracker) poll() {
 		return
 	}
 
-	repo := RepoName(p.Cwd)
+	// Cache repo name per cwd to avoid a git subprocess on every poll tick.
+	repo, ok := t.repoCache[p.Cwd]
+	if !ok {
+		repo = RepoName(p.Cwd)
+		t.repoCache[p.Cwd] = repo
+	}
 	cat := classifyCommand(p.Command)
 	pl := GetPlatform()
 	meta, _ := json.Marshal(PaneMeta{

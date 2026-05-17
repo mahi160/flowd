@@ -1,12 +1,16 @@
 package fw
 
 import (
+	"context"
+	"fmt"
+	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
-
 
 var extLang = map[string]string{
 	".go": "Go", ".rs": "Rust", ".py": "Python", ".js": "JavaScript",
@@ -16,9 +20,25 @@ var extLang = map[string]string{
 	".cs": "C#", ".php": "PHP", ".sh": "Shell", ".zsh": "Shell", ".bash": "Shell",
 	".lua": "Lua", ".vim": "Vim", ".md": "Markdown", ".yaml": "YAML", ".yml": "YAML",
 	".toml": "TOML", ".json": "JSON", ".html": "HTML", ".css": "CSS", ".scss": "SCSS",
-	".sql": "SQL", ".dockerfile": "Docker", ".tf": "Terraform", ".svelte": "Svelte",
+	".sql": "SQL", ".tf": "Terraform", ".svelte": "Svelte",
 	".vue": "Vue", ".dart": "Dart", ".ex": "Elixir", ".exs": "Elixir", ".erl": "Erlang",
 	".scala": "Scala", ".clj": "Clojure", ".hs": "Haskell", ".ml": "OCaml",
+}
+
+// knownLangs is the set of language names we consider meaningful.
+// Derived from extLang values. Anything not in this set is noise.
+var knownLangs = func() map[string]bool {
+	m := map[string]bool{}
+	for _, v := range extLang {
+		m[v] = true
+	}
+	return m
+}()
+
+// isKnownLang reports whether a language name is one we recognise (not a noise
+// extension like "lock", "svg", "db", etc.).
+func isKnownLang(lang string) bool {
+	return knownLangs[lang]
 }
 
 func langOf(ext string) string {
@@ -32,7 +52,6 @@ func langOf(ext string) string {
 }
 
 // LangFromCommand maps a runtime process name to a language.
-// Returns "" if unknown.
 func LangFromCommand(cmd string) string {
 	switch cmd {
 	case "node", "bun":
@@ -58,33 +77,69 @@ func LangFromCommand(cmd string) string {
 }
 
 // ScanLangs returns file-extension counts for source files in dir (maxdepth 2).
-// Used when no git repo is available.
+// Uses filepath.WalkDir — no external process, works on all platforms.
 func ScanLangs(dir string) map[string]int {
-	out, err := exec.Command("find", dir,
-		"-maxdepth", "2", "-type", "f",
-		"!", "-path", "*/.*",          // skip hidden
-		"!", "-path", "*/node_modules/*",
-		"!", "-path", "*/vendor/*",
-	).Output()
-	if err != nil {
-		return nil
-	}
 	counts := map[string]int{}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		ext := strings.ToLower(filepath.Ext(line))
+	depth := strings.Count(filepath.Clean(dir), string(os.PathSeparator))
+
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		// Skip hidden dirs and common noise dirs.
+		name := d.Name()
+		if d.IsDir() {
+			if name == "node_modules" || name == "vendor" || name == ".git" ||
+				(len(name) > 0 && name[0] == '.') {
+				return filepath.SkipDir
+			}
+			// Limit depth to 2 below the root.
+			cur := strings.Count(filepath.Clean(path), string(os.PathSeparator))
+			if cur-depth > 2 {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(name))
 		if ext == "" {
-			continue
+			return nil
 		}
 		lang := langOf(ext)
 		if lang != "other" {
 			counts[lang]++
 		}
-	}
+		return nil
+	})
 	return counts
 }
 
+// runGit runs a git command in dir, returns combined output and error.
+// This is the single canonical git runner for the whole package.
+func runGit(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// git runs a git command and returns only an error (discards stdout/stderr
+// on success). Wraps runGit for callers that don't need the output.
+func git(ctx context.Context, dir string, args ...string) error {
+	out, err := runGit(ctx, dir, args...)
+	if err != nil {
+		return fmt.Errorf("git %v: %w\n%s", args, err, out)
+	}
+	return nil
+}
+
+// gitTimeout is the max time we'll wait for any single git metadata query.
+// Prevents hangs on network filesystems or slow git hooks.
+const gitTimeout = 5 * time.Second
+
 func RepoRoot(cwd string) string {
-	out, err := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return ""
 	}
@@ -100,7 +155,9 @@ func RepoName(cwd string) string {
 }
 
 func CurrentBranch(repo string) string {
-	out, err := exec.Command("git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD").Output()
 	if err != nil {
 		return ""
 	}
@@ -131,17 +188,16 @@ func parseNumstat(s string, files map[string]FileStat) {
 	}
 }
 
-// DiffStat returns per-file added/removed lines (deduped) for committed work
-// in [start..end] plus current uncommitted diff. Files appearing in both
-// sources are merged (lines summed, file counted once).
+// DiffStat returns per-file added/removed lines for commits in [since, until].
+// Only committed work is counted — uncommitted diffs are intentionally excluded
+// to prevent double-counting across block boundaries.
 func DiffStat(repo, sinceISO, untilISO string) map[string]FileStat {
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
 	files := map[string]FileStat{}
-	if out, err := exec.Command("git", "-C", repo, "log",
+	if out, err := exec.CommandContext(ctx, "git", "-C", repo, "log",
 		"--since="+sinceISO, "--until="+untilISO,
 		"--pretty=tformat:", "--numstat").Output(); err == nil {
-		parseNumstat(string(out), files)
-	}
-	if out, err := exec.Command("git", "-C", repo, "diff", "--numstat").Output(); err == nil {
 		parseNumstat(string(out), files)
 	}
 	return files

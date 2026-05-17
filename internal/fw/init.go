@@ -2,11 +2,11 @@ package fw
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -32,14 +32,6 @@ func askBool(r *bufio.Reader, prompt string, def bool) bool {
 	return strings.ToLower(ask(r, prompt+" (y/n)", d)) == "y"
 }
 
-func askInt(r *bufio.Reader, prompt string, def int) int {
-	n, err := strconv.Atoi(ask(r, prompt, strconv.Itoa(def)))
-	if err != nil {
-		return def
-	}
-	return n
-}
-
 // gitConfigGlobal reads a single git global config value.
 func gitConfigGlobal(key string) string {
 	out, err := exec.Command("git", "config", "--global", key).Output()
@@ -50,7 +42,6 @@ func gitConfigGlobal(key string) string {
 }
 
 // RunInitWizard walks the user through the minimal setup questions.
-// Everything except the git repo has a sensible default — just press Enter.
 func RunInitWizard() (*Config, error) {
 	cfg := DefaultConfig()
 	r := bufio.NewReader(os.Stdin)
@@ -58,7 +49,6 @@ func RunInitWizard() (*Config, error) {
 	fmt.Println()
 	fmt.Println("  flowd init — Press Enter to accept [default].")
 
-	// ── Git identity ─────────────────────────────────────────────────
 	gitName := gitConfigGlobal("user.name")
 	gitEmail := gitConfigGlobal("user.email")
 	fmt.Println()
@@ -68,7 +58,7 @@ func RunInitWizard() (*Config, error) {
 	fmt.Println("  a verified address on your GitHub account.")
 	fmt.Println()
 	if gitName == "" && gitEmail == "" {
-		fmt.Println("  ⚠  No global git identity found. Set one with:")
+		fmt.Println("  ⚠  No global git identity found. Set one with:")
 		fmt.Println("       git config --global user.name \"Your Name\"")
 		fmt.Println("       git config --global user.email \"you@example.com\"")
 		fmt.Println()
@@ -86,7 +76,6 @@ func RunInitWizard() (*Config, error) {
 		}
 	}
 
-	// ── Journal repo ───────────────────────────────────────────────
 	fmt.Println()
 	fmt.Println("  ── Journal repo ──")
 	fmt.Println("  Private git repo where flowd stores your session logs.")
@@ -96,7 +85,6 @@ func RunInitWizard() (*Config, error) {
 	cfg.GitRemote = ask(r, "git remote URL (blank = local only)", cfg.GitRemote)
 	cfg.RepoPath = ask(r, "local repo path", cfg.RepoPath)
 
-	// ── Machine name ───────────────────────────────────────────────
 	fmt.Println()
 	fmt.Println("  ── Machine name ──")
 	fmt.Printf("  Used as the folder inside the repo: %s/<machine>/2026-04.md\n", cfg.RepoPath)
@@ -106,23 +94,11 @@ func RunInitWizard() (*Config, error) {
 	return cfg, nil
 }
 
-func splitCSV(s string) []string {
-	var out []string
-	for _, p := range strings.Split(s, ",") {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
-}
-
 // SetupRepo prepares the journal repo. If a remote is given and the path
-// doesn't exist yet, it tries `git clone`. Otherwise it `git init`s in
-// place and adds the remote (if any). Always writes a .gitignore that
-// excludes SQLite work files.
+// doesn't exist yet, it tries git clone. Otherwise git init + remote add.
 func SetupRepo(repoPath, remote, branch string) error {
 	repoPath = expandHome(repoPath)
+	ctx := context.Background()
 
 	alreadyRepo := false
 	if _, err := os.Stat(filepath.Join(repoPath, ".git")); err == nil {
@@ -131,7 +107,6 @@ func SetupRepo(repoPath, remote, branch string) error {
 
 	if !alreadyRepo {
 		if remote != "" {
-			// Try clone. Falls back to init on failure (e.g., empty remote).
 			if _, err := os.Stat(repoPath); os.IsNotExist(err) || isEmptyDir(repoPath) {
 				out, err := exec.Command("git", "clone", "-b", branch, remote, repoPath).CombinedOutput()
 				if err == nil {
@@ -146,7 +121,7 @@ func SetupRepo(repoPath, remote, branch string) error {
 			if err := os.MkdirAll(repoPath, 0750); err != nil {
 				return err
 			}
-			if out, err := gitIn(repoPath, "init", "-b", branch); err != nil {
+			if out, err := runGit(ctx, repoPath, "init", "-b", branch); err != nil {
 				return fmt.Errorf("git init: %w\n%s", err, out)
 			}
 			fmt.Printf("  git init → %s\n", repoPath)
@@ -160,15 +135,15 @@ func SetupRepo(repoPath, remote, branch string) error {
 	if remote == "" {
 		return nil
 	}
-	out, getErr := gitIn(repoPath, "remote", "get-url", "origin")
+	out, getErr := runGit(ctx, repoPath, "remote", "get-url", "origin")
 	existing := strings.TrimSpace(out)
 	if getErr != nil {
-		if out, err := gitIn(repoPath, "remote", "add", "origin", remote); err != nil {
+		if out, err := runGit(ctx, repoPath, "remote", "add", "origin", remote); err != nil {
 			return fmt.Errorf("git remote add: %w\n%s", err, out)
 		}
 		fmt.Printf("  remote origin → %s\n", remote)
 	} else if existing != remote {
-		if out, err := gitIn(repoPath, "remote", "set-url", "origin", remote); err != nil {
+		if out, err := runGit(ctx, repoPath, "remote", "set-url", "origin", remote); err != nil {
 			return fmt.Errorf("git remote set-url: %w\n%s", err, out)
 		}
 		fmt.Printf("  remote origin updated → %s\n", remote)
@@ -181,18 +156,35 @@ func isEmptyDir(p string) bool {
 	return err == nil && len(entries) == 0
 }
 
+const gitignoreBlock = "# flowd — SQLite work files\nflowd.db\nflowd.db-wal\nflowd.db-shm\n"
+
 func writeGitignore(repoPath string) error {
-	const body = "# flowd — SQLite work files\nflowd.db-wal\nflowd.db-shm\n"
 	path := filepath.Join(repoPath, ".gitignore")
 	existing, _ := os.ReadFile(path)
-	if strings.Contains(string(existing), "flowd.db-wal") {
+	body := string(existing)
+
+	// Check all three entries are present; if any is missing, append the block.
+	needsUpdate := !strings.Contains(body, "flowd.db\n") ||
+		!strings.Contains(body, "flowd.db-wal") ||
+		!strings.Contains(body, "flowd.db-shm")
+	if !needsUpdate {
 		return nil
 	}
-	merged := string(existing)
-	if merged != "" && !strings.HasSuffix(merged, "\n") {
+
+	// Remove any partial flowd entries to avoid duplicates, then append fresh block.
+	var cleaned []string
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "flowd.db") ||
+			strings.TrimSpace(line) == "# flowd — SQLite work files" {
+			continue
+		}
+		cleaned = append(cleaned, line)
+	}
+	merged := strings.TrimRight(strings.Join(cleaned, "\n"), "\n")
+	if merged != "" {
 		merged += "\n"
 	}
-	merged += body
+	merged += gitignoreBlock
 	return os.WriteFile(path, []byte(merged), 0640)
 }
 
@@ -227,11 +219,4 @@ func SetupTmuxAutostart() error {
 	fmt.Println("  added run-shell line to ~/.tmux.conf")
 	_ = exec.Command("tmux", "source-file", conf).Run()
 	return nil
-}
-
-func gitIn(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", args...)
-	cmd.Dir = dir
-	out, err := cmd.CombinedOutput()
-	return string(out), err
 }
