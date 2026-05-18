@@ -109,12 +109,11 @@ func SetupRepo(repoPath, remote, branch string) error {
 		if remote != "" {
 			if _, err := os.Stat(repoPath); os.IsNotExist(err) || isEmptyDir(repoPath) {
 				out, err := exec.Command("git", "clone", "-b", branch, remote, repoPath).CombinedOutput()
-				if err == nil {
-					fmt.Printf("  git clone → %s\n", repoPath)
-					alreadyRepo = true
-				} else {
-					fmt.Printf("  clone failed (%s) — initializing fresh repo\n", strings.TrimSpace(string(out)))
+				if err != nil {
+					return fmt.Errorf("git clone failed: %s\n\nFix your remote URL or SSH key, then re-run fw init", strings.TrimSpace(string(out)))
 				}
+				fmt.Printf("  git clone → %s\n", repoPath)
+				alreadyRepo = true
 			}
 		}
 		if !alreadyRepo {
@@ -212,7 +211,7 @@ func SetupTmuxAutostart() error {
 	}
 	defer f.Close()
 
-	line := "\n# flowd — start activity tracker with tmux\nrun-shell \"fw start &> /tmp/flowd.log &\"\n"
+	line := "\n# flowd — start activity tracker with tmux\nrun-shell \"fw start\"\n"
 	if _, err := f.WriteString(line); err != nil {
 		return err
 	}
