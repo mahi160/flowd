@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -18,80 +20,130 @@ import (
 
 const pidFile = "/tmp/fw.pid"
 
+func defaultLogPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".local", "share", "flowd", "flowd.log")
+}
+
 func cmdStart() *cobra.Command {
-	return &cobra.Command{
+	var daemonMode bool
+	c := &cobra.Command{
 		Use:   "start",
-		Short: "Start the daemon (foreground)",
+		Short: "Start the tracking daemon in the background",
 		RunE: func(*cobra.Command, []string) error {
-			cfg, err := LoadConfig(cfgPath)
-			if err != nil {
-				return err
+			if daemonMode {
+				return runDaemon()
 			}
-			d, err := OpenDB(cfg.DBPath())
-			if err != nil {
-				return err
-			}
-			defer d.Close()
-
-			if data, err := os.ReadFile(pidFile); err == nil {
-				if p, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
-					if proc, err := os.FindProcess(p); err == nil && proc.Signal(syscall.Signal(0)) == nil {
-						return fmt.Errorf("flowd already running (pid %d); run `fw stop` first", p)
-					}
-				}
-			}
-			if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
-				slog.Warn("write pid", "err", err)
-			}
-			defer os.Remove(pidFile)
-
-			initPlatform(cfg.MachineName)
-			pl := GetPlatform()
-			fmt.Println("flowd started (ctrl+c to stop, or `fw stop`)")
-			slog.Info("daemon up", "db", cfg.DBPath(), "poll_sec", cfg.PollIntervalSec,
-				"machine", pl.Machine, "os", pl.OS)
-
-			ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-			defer cancel()
-
-			var wg sync.WaitGroup
-			wg.Add(3)
-
-			go func() {
-				defer wg.Done()
-				NewTracker(d, cfg.PollIntervalSec, cfg.IdleThresholdSec, cfg.WatchDirs).Run(ctx)
-			}()
-
-			go func() {
-				defer wg.Done()
-				runScheduler(ctx, d, cfg)
-			}()
-
-			go func() {
-				defer wg.Done()
-				ticker := time.NewTicker(30 * time.Minute)
-				defer ticker.Stop()
-				svc := ai_sessions.NewService(d.DB, cfg.AISessionPaths)
-				if err := svc.RunSync(); err != nil {
-					slog.Warn("initial ai session scan", "err", err)
-				}
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-ticker.C:
-						if err := svc.RunSync(); err != nil {
-							slog.Warn("ai session scan", "err", err)
-						}
-					}
-				}
-			}()
-
-			wg.Wait()
-			fmt.Println("flowd stopped")
-			return nil
+			return spawnDaemon()
 		},
 	}
+	c.Flags().BoolVar(&daemonMode, "daemon", false, "")
+	_ = c.Flags().MarkHidden("daemon")
+	return c
+}
+
+// spawnDaemon re-execs fw with --daemon, detached from the terminal.
+func spawnDaemon() error {
+	if data, err := os.ReadFile(pidFile); err == nil {
+		if p, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+			if proc, err := os.FindProcess(p); err == nil && proc.Signal(syscall.Signal(0)) == nil {
+				return fmt.Errorf("flowd already running (pid %d); run `fw stop` first", p)
+			}
+		}
+	}
+
+	logPath := defaultLogPath()
+	if err := os.MkdirAll(filepath.Dir(logPath), 0750); err != nil {
+		return fmt.Errorf("create log dir: %w", err)
+	}
+	logFile, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
+	if err != nil {
+		return fmt.Errorf("open log file: %w", err)
+	}
+	defer logFile.Close()
+
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("resolve executable: %w", err)
+	}
+
+	args := append(os.Args[1:], "--daemon")
+	cmd := exec.Command(exe, args...)
+	cmd.Stdout = logFile
+	cmd.Stderr = logFile
+	cmd.Stdin = nil
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("spawn daemon: %w", err)
+	}
+
+	fmt.Printf("flowd started (pid %d)\n", cmd.Process.Pid)
+	fmt.Printf("logs: %s\n", logPath)
+	return nil
+}
+
+// runDaemon is the actual daemon loop — only called by the spawned child.
+func runDaemon() error {
+	cfg, err := LoadConfig(cfgPath)
+	if err != nil {
+		return err
+	}
+	d, err := OpenDB(cfg.DBPath())
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+		slog.Warn("write pid", "err", err)
+	}
+	defer os.Remove(pidFile)
+
+	initPlatform(cfg.MachineName)
+	pl := GetPlatform()
+	slog.Info("daemon up", "db", cfg.DBPath(), "poll_sec", cfg.PollIntervalSec,
+		"machine", pl.Machine, "os", pl.OS)
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+
+	go func() {
+		defer wg.Done()
+		NewTracker(d, cfg.PollIntervalSec, cfg.IdleThresholdSec, cfg.WatchDirs).Run(ctx)
+	}()
+
+	go func() {
+		defer wg.Done()
+		runScheduler(ctx, d, cfg)
+	}()
+
+	go func() {
+		defer wg.Done()
+		ticker := time.NewTicker(30 * time.Minute)
+		defer ticker.Stop()
+		svc := ai_sessions.NewService(d.DB, cfg.AISessionPaths)
+		if err := svc.RunSync(); err != nil {
+			slog.Warn("initial ai session scan", "err", err)
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := svc.RunSync(); err != nil {
+					slog.Warn("ai session scan", "err", err)
+				}
+			}
+		}
+	}()
+
+	wg.Wait()
+	slog.Info("daemon stopped")
+	return nil
 }
 
 func cmdStop() *cobra.Command {
