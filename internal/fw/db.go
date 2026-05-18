@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 const schema = `
@@ -163,7 +163,7 @@ func OpenDB(path string) (*DB, error) {
 	}
 	// _loc=UTC ensures time.Time values are scanned in UTC.
 	dsn := path + "?_journal_mode=WAL&_busy_timeout=5000&_loc=UTC"
-	conn, err := sql.Open("sqlite3", dsn)
+	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
