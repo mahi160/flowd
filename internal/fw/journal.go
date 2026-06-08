@@ -271,10 +271,13 @@ func assembleSections(original string, sections map[string]string, targetDay tim
 	return sb.String()
 }
 
-// dayFromHeading parses a date from a "### Monday, 02 Jan" heading.
-// Returns zero time on parse failure.
+// dayFromHeading parses a date from a "### Monday, 02 Jan" heading for
+// ordering purposes within a single monthly file.
+//
+// The year is intentionally omitted from the format: time.Parse returns year 0
+// for all entries, but since every file covers exactly one calendar month,
+// comparisons by month+day are sufficient for correct chronological ordering.
 func dayFromHeading(heading string) time.Time {
-	// Strip "### "
 	date := strings.TrimPrefix(heading, "### ")
 	t, _ := time.Parse("Monday, 02 Jan", date)
 	return t

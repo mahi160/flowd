@@ -71,7 +71,8 @@ type Tracker struct {
 	repoCache map[string]string // cwd → repo name
 	// pidCache caches AI-CLI resolution per pane PID to avoid calling
 	// ResolveAICLI on every 3-second tick (only used for interpreter panes).
-	pidCache map[int]pidCacheEntry
+	pidCache  map[int]pidCacheEntry
+	pollCount int // used to schedule periodic cache cleanup
 }
 
 func NewTracker(d *DB, pollSec, idleSec int, watchDirs []string) *Tracker {
@@ -121,6 +122,18 @@ func (t *Tracker) waitForTmux(ctx context.Context) {
 }
 
 func (t *Tracker) poll() {
+	t.pollCount++
+	// Trim stale pidCache entries every 300 polls (~15 min at default 3s interval)
+	// so panes that closed long ago don't accumulate indefinitely.
+	if t.pollCount%300 == 0 {
+		now := time.Now()
+		for pid, entry := range t.pidCache {
+			if now.After(entry.expiresAt) {
+				delete(t.pidCache, pid)
+			}
+		}
+	}
+
 	if ScreenClosed() {
 		if t.last != nil {
 			slog.Debug("screen closed, pausing tracking")

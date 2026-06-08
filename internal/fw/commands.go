@@ -280,7 +280,8 @@ func cmdSetupTmux() *cobra.Command {
 }
 
 func cmdSetupNvim() *cobra.Command {
-	return &cobra.Command{
+	var force bool
+	c := &cobra.Command{
 		Use:   "setup-nvim",
 		Short: "Install the flowd.lua neovim plugin",
 		Long: `Writes the bundled flowd.lua to ~/.config/nvim/plugin/flowd.lua.
@@ -289,9 +290,9 @@ The plugin reports your active filetype to flowd on every buffer switch,
 giving accurate language attribution before a git commit lands.
 It works with or without a plugin manager and is fully optional.`,
 		RunE: func(*cobra.Command, []string) error {
-			if NvimPluginInstalled() {
+			if NvimPluginInstalled() && !force {
 				fmt.Printf("already installed: %s/plugin/flowd.lua\n", nvimConfigDir())
-				fmt.Println("run again with --force to overwrite")
+				fmt.Println("run with --force to overwrite")
 				return nil
 			}
 			dest, err := InstallNvimPlugin()
@@ -303,4 +304,6 @@ It works with or without a plugin manager and is fully optional.`,
 			return nil
 		},
 	}
+	c.Flags().BoolVar(&force, "force", false, "overwrite existing plugin file")
+	return c
 }
