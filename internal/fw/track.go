@@ -14,6 +14,15 @@ const (
 	EvSessionChange = "session_change" // project/context switch
 )
 
+// pidCacheEntry holds a resolved AI-CLI result for a specific pane PID
+// so we don't call ResolveAICLI on every 3-second poll tick.
+type pidCacheEntry struct {
+	tool      string    // "" means "checked, not an AI CLI"
+	expiresAt time.Time
+}
+
+const pidCacheTTL = 5 * time.Second
+
 // classifyCommand maps a process name to a tool category used for
 // language inference. The raw command name is stored in ByTool;
 // the category is an internal grouping only.
@@ -38,24 +47,31 @@ func classifyCommand(cmd string) string {
 }
 
 type PaneMeta struct {
-	Session  string `json:"session"`
-	Window   string `json:"window"`
-	Pane     string `json:"pane"`
-	Command  string `json:"command"`
-	Category string `json:"category"`
-	Cwd      string `json:"cwd"`
-	Repo     string `json:"repo,omitempty"`
-	Machine  string `json:"machine,omitempty"`
-	OS       string `json:"os,omitempty"`
+	Session      string `json:"session"`
+	Window       string `json:"window"`
+	Pane         string `json:"pane"`
+	Command      string `json:"command"`
+	Category     string `json:"category"`
+	Cwd          string `json:"cwd"`
+	Repo         string `json:"repo,omitempty"`
+	Machine      string `json:"machine,omitempty"`
+	OS           string `json:"os,omitempty"`
+	// NvimFiletype is populated by the flowd.lua plugin when the pane is nvim.
+	// Empty string means plugin absent or not an nvim pane.
+	NvimFiletype string `json:"nvim_ft,omitempty"`
 }
 
 type Tracker struct {
-	db           *DB
-	interval     time.Duration
-	idleSec      int
-	watchDirs    []string
-	last         *Pane
-	repoCache    map[string]string // cwd → repo name (avoids a git subprocess per poll)
+	db        *DB
+	interval  time.Duration
+	idleSec   int
+	watchDirs []string
+	last      *Pane
+	// repoCache avoids a git subprocess on every poll tick.
+	repoCache map[string]string // cwd → repo name
+	// pidCache caches AI-CLI resolution per pane PID to avoid calling
+	// ResolveAICLI on every 3-second tick (only used for interpreter panes).
+	pidCache map[int]pidCacheEntry
 }
 
 func NewTracker(d *DB, pollSec, idleSec int, watchDirs []string) *Tracker {
@@ -69,6 +85,7 @@ func NewTracker(d *DB, pollSec, idleSec int, watchDirs []string) *Tracker {
 		idleSec:   idleSec,
 		watchDirs: dirs,
 		repoCache: map[string]string{},
+		pidCache:  map[int]pidCacheEntry{},
 	}
 }
 
@@ -143,12 +160,24 @@ func (t *Tracker) poll() {
 		repo = RepoName(p.Cwd)
 		t.repoCache[p.Cwd] = repo
 	}
-	cat := classifyCommand(p.Command)
+
+	cmd, cat := t.resolveCommand(p)
+
+	// When the pane is nvim, check for the plugin state file so the block
+	// builder can use the real filetype for language attribution.
+	// Match by cwd, NOT by pane PID: tmux #{pane_pid} is the shell's PID;
+	// the plugin names its file after nvim's own PID (different process).
+	var nvimFT string
+	if cmd == "nvim" {
+		nvimFT = NvimFiletype(p.Cwd)
+	}
+
 	pl := GetPlatform()
 	meta, _ := json.Marshal(PaneMeta{
 		Session: p.Session, Window: p.Window, Pane: p.Pane,
-		Command: p.Command, Category: cat, Cwd: p.Cwd, Repo: repo,
+		Command: cmd, Category: cat, Cwd: p.Cwd, Repo: repo,
 		Machine: pl.Machine, OS: pl.OS,
+		NvimFiletype: nvimFT,
 	})
 
 	t.write(EvActive, p.PaneID, string(meta))
@@ -161,6 +190,48 @@ func (t *Tracker) poll() {
 		}
 	}
 	t.last = p
+}
+
+// resolveCommand returns the effective (command, category) pair for a pane.
+//
+// Fast path: if the pane command is not a known interpreter, classify it
+// directly — zero overhead.
+//
+// Slow path: when the command IS a known interpreter (node, python, …), the
+// actual tool running inside the pane may be an AI CLI whose process is a
+// child of the shell (e.g. tmux sees "node" but the real foreground process
+// is "pi"). We walk the process tree once and cache the result per pane PID
+// for pidCacheTTL to keep the common case cheap.
+func (t *Tracker) resolveCommand(p *Pane) (cmd, cat string) {
+	cmd = p.Command
+	cat = classifyCommand(cmd)
+
+	// Fast path: not an interpreter → nothing to resolve.
+	if cat != "runtime" || !IsInterpreter(cmd) {
+		return cmd, cat
+	}
+
+	// Check cache first.
+	now := time.Now()
+	if entry, ok := t.pidCache[p.PanePID]; ok && now.Before(entry.expiresAt) {
+		if entry.tool != "" {
+			return entry.tool, "ai"
+		}
+		return cmd, cat // cached "not an AI CLI"
+	}
+
+	// Walk the process tree.
+	tool := ResolveAICLI(p.PanePID)
+	t.pidCache[p.PanePID] = pidCacheEntry{
+		tool:      tool,
+		expiresAt: now.Add(pidCacheTTL),
+	}
+	if tool != "" {
+		slog.Debug("resolved interpreter to AI CLI",
+			"pane_pid", p.PanePID, "interpreter", cmd, "tool", tool)
+		return tool, "ai"
+	}
+	return cmd, cat
 }
 
 func (t *Tracker) inWatchDirs(cwd string) bool {

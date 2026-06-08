@@ -12,6 +12,7 @@ type Pane struct {
 	Window  string
 	Pane    string
 	PaneID  string
+	PanePID int
 	Command string
 	Cwd     string
 }
@@ -57,21 +58,27 @@ func AttachedSession() (string, int) {
 }
 
 // parsePane parses a single line of tmux display-message output.
+// Expected format (7 pipe-separated fields):
+//
+//	#{session_name}|#{window_name}|#{pane_index}|#{pane_id}|#{pane_pid}|#{pane_current_command}|#{pane_current_path}
 func parsePane(raw string) (*Pane, error) {
-	parts := strings.SplitN(strings.TrimSpace(raw), "|", 6)
-	if len(parts) < 6 {
+	parts := strings.SplitN(strings.TrimSpace(raw), "|", 7)
+	if len(parts) < 7 {
 		return nil, fmt.Errorf("bad tmux output: %q", raw)
 	}
+	var panePID int
+	fmt.Sscan(parts[4], &panePID)
 	return &Pane{
 		Session: parts[0], Window: parts[1], Pane: parts[2],
-		PaneID: parts[3], Command: parts[4], Cwd: parts[5],
+		PaneID: parts[3], PanePID: panePID,
+		Command: parts[5], Cwd: parts[6],
 	}, nil
 }
 
 // ActivePane returns the active pane of the given session.
 func ActivePane(session string) (*Pane, error) {
 	out, err := exec.Command("tmux", "display-message", "-p", "-t", session,
-		"-F", "#{session_name}|#{window_name}|#{pane_index}|#{pane_id}|#{pane_current_command}|#{pane_current_path}",
+		"-F", "#{session_name}|#{window_name}|#{pane_index}|#{pane_id}|#{pane_pid}|#{pane_current_command}|#{pane_current_path}",
 	).Output()
 	if err != nil {
 		return nil, fmt.Errorf("tmux display-message: %w", err)

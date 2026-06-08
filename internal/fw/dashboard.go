@@ -91,13 +91,20 @@ type periodData struct {
 // dashPayload is the top-level JSON blob injected into the HTML.
 // It contains pre-built data for ALL periods so every tab works immediately.
 type dashPayload struct {
-	InitialPeriod string                  `json:"initial_period"`
-	Generated     string                  `json:"generated"`
-	Machine       string                  `json:"machine"`
-	OS            string                  `json:"os"`
-	StreakDays    int                     `json:"streak_days"`
-	AIRecap       string                  `json:"ai_recap,omitempty"`
-	Periods       map[string]*periodData  `json:"periods"`
+	InitialPeriod string                 `json:"initial_period"`
+	Generated     string                 `json:"generated"`
+	Machine       string                 `json:"machine"`
+	OS            string                 `json:"os"`
+	StreakDays    int                    `json:"streak_days"`
+	// Standup is the AI-generated today/yesterday standup text.
+	// Empty when AI is disabled or no blocks exist for today/yesterday.
+	Standup       string                 `json:"standup,omitempty"`
+	// StandupRaw is the structured input (always present when there is
+	// recent activity) — rendered verbatim when AI is disabled.
+	StandupRaw    string                 `json:"standup_raw,omitempty"`
+	// AIRecap is the legacy period-level recap (kept for backwards compat).
+	AIRecap       string                 `json:"ai_recap,omitempty"`
+	Periods       map[string]*periodData `json:"periods"`
 }
 
 //go:embed static

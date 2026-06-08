@@ -76,6 +76,66 @@ func LangFromCommand(cmd string) string {
 	return ""
 }
 
+// langFromFiletype maps a neovim filetype string to the canonical language name
+// used throughout flowd. Returns "" for filetypes we don't track.
+func langFromFiletype(ft string) string {
+	switch ft {
+	case "go":
+		return "Go"
+	case "python":
+		return "Python"
+	case "javascript", "javascriptreact":
+		return "JavaScript"
+	case "typescript", "typescriptreact":
+		return "TypeScript"
+	case "rust":
+		return "Rust"
+	case "lua":
+		return "Lua"
+	case "ruby":
+		return "Ruby"
+	case "java":
+		return "Java"
+	case "kotlin":
+		return "Kotlin"
+	case "swift":
+		return "Swift"
+	case "c":
+		return "C"
+	case "cpp":
+		return "C++"
+	case "cs":
+		return "C#"
+	case "php":
+		return "PHP"
+	case "elixir":
+		return "Elixir"
+	case "haskell":
+		return "Haskell"
+	case "scala":
+		return "Scala"
+	case "html":
+		return "HTML"
+	case "css", "scss", "sass", "less":
+		return "CSS"
+	case "svelte":
+		return "Svelte"
+	case "vue":
+		return "Vue"
+	case "sh", "bash", "zsh":
+		return "Shell"
+	case "sql":
+		return "SQL"
+	case "markdown", "mdx":
+		return "Markdown"
+	case "yaml", "toml", "json", "jsonc":
+		return "Config"
+	case "dockerfile":
+		return "Dockerfile"
+	}
+	return ""
+}
+
 // ScanLangs returns file-extension counts for source files in dir (maxdepth 2).
 // Uses filepath.WalkDir — no external process, works on all platforms.
 func ScanLangs(dir string) map[string]int {
@@ -186,6 +246,48 @@ func parseNumstat(s string, files map[string]FileStat) {
 		cur.Removed += r
 		files[f] = cur
 	}
+}
+
+// Commit holds a single git commit summary used for standup generation.
+type Commit struct {
+	Hash    string
+	Author  string
+	Subject string
+	Date    string // ISO 8601
+}
+
+// RecentCommits returns commits in the repo made since the given time.
+// Returns at most maxCount commits (most recent first). Returns nil (not an
+// error) when the repo has no commits or git is unavailable.
+func RecentCommits(repo string, since time.Time, maxCount int) []Commit {
+	if maxCount <= 0 {
+		maxCount = 50
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	// Format: hash\x1fauthor\x1fdate\x1fsubject\n
+	format := "--pretty=format:%h\x1f%an\x1f%aI\x1f%s"
+	sinceArg := "--since=" + since.UTC().Format("2006-01-02T15:04:05Z")
+	maxArg := fmt.Sprintf("--max-count=%d", maxCount)
+	out, err := exec.CommandContext(ctx, "git", "-C", repo, "log",
+		sinceArg, maxArg, format).Output()
+	if err != nil || len(out) == 0 {
+		return nil
+	}
+	var commits []Commit
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		parts := strings.SplitN(line, "\x1f", 4)
+		if len(parts) < 4 {
+			continue
+		}
+		commits = append(commits, Commit{
+			Hash:    parts[0],
+			Author:  parts[1],
+			Date:    parts[2],
+			Subject: parts[3],
+		})
+	}
+	return commits
 }
 
 // DiffStat returns per-file added/removed lines for commits in [since, until].

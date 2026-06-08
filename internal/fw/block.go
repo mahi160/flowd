@@ -64,9 +64,10 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 	repoCt        := map[string]int{}
 	projCt        := map[string]int{}
 	repoSet       := map[string]struct{}{}
-	editorByRepo  := map[string]int{}  // repo → editor ticks
+	editorByRepo  := map[string]int{}  // repo → editor ticks (git-diff path)
 	runtimeByCmd  := map[string]int{}  // command → runtime ticks (for lang inference)
 	cwdNoRepo     := map[string]int{}  // cwd → editor ticks (no git repo)
+	nvimLangTicks := map[string]int{}  // filetype → ticks (from nvim plugin; bypasses git-diff)
 	activeTicks   := 0
 
 	secPerTick := pollSec
@@ -104,7 +105,11 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 			projCt[m.Cwd]++
 		}
 		if m.Category == "editor" {
-			if m.Repo != "" {
+			if m.NvimFiletype != "" {
+				// Plugin provided an exact filetype — collect separately so we
+				// don't also run git-diff attribution for the same ticks.
+				nvimLangTicks[m.NvimFiletype]++
+			} else if m.Repo != "" {
 				editorByRepo[m.Repo]++
 			} else if m.Cwd != "" {
 				cwdNoRepo[m.Cwd]++
@@ -170,6 +175,13 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 		repoEditorMin := editorByRepo[repo] * secPerTick / 60
 		for k, v := range distributeByLines(stats, repoEditorMin) {
 			b.Languages[k] += v
+		}
+	}
+
+	// nvim plugin filetype → language minutes (highest fidelity; no git needed).
+	for ft, ticks := range nvimLangTicks {
+		if lang := langFromFiletype(ft); lang != "" {
+			b.Languages[lang] += (ticks * secPerTick) / 60
 		}
 	}
 

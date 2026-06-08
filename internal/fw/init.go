@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -80,9 +81,12 @@ func RunInitWizard() (*Config, error) {
 	fmt.Println("  ── Journal repo ──")
 	fmt.Println("  Private git repo where flowd stores your session logs.")
 	fmt.Println("  Each commit = one focus block = one green square on GitHub.")
-	fmt.Println("  Add a remote to sync; leave blank for local only.")
+	fmt.Println("  Create an empty private repo on GitHub first, then paste the URL.")
+	fmt.Println("  Leave blank for local-only (no GitHub contribution graph).")
 	fmt.Println()
-	cfg.GitRemote = ask(r, "git remote URL (blank = local only)", cfg.GitRemote)
+	fmt.Println("  e.g. git@github.com:yourname/journal.git")
+	fmt.Println()
+	cfg.GitRemote = ask(r, "git remote URL (blank = local only)", "")
 	cfg.RepoPath = ask(r, "local repo path", cfg.RepoPath)
 
 	fmt.Println()
@@ -91,7 +95,103 @@ func RunInitWizard() (*Config, error) {
 	fmt.Println()
 	cfg.MachineName = ask(r, "machine name", cfg.MachineName)
 
+	// ── AI summaries ────────────────────────────────────────────────────────
+	fmt.Println()
+	fmt.Println("  ── AI summaries (optional) ──")
+	fmt.Println("  flowd can pipe each focus block + your daily standup through an")
+	fmt.Println("  AI CLI for auto-generated notes. Any stdin→stdout command works.")
+	fmt.Println()
+
+	if cmd, enabled := pickAICommand(r); enabled {
+		cfg.AIEnabled = true
+		cfg.AICommand = cmd
+		fmt.Printf("  ai_command: %s\n", cmd)
+	} else {
+		cfg.AIEnabled = false
+		cfg.AICommand = ""
+		fmt.Println("  AI summaries disabled. Enable later in ~/.config/flowd/config.yaml.")
+	}
+
+	// ── neovim plugin ────────────────────────────────────────────────────────
+	if _, err := exec.LookPath("nvim"); err == nil {
+		fmt.Println()
+		fmt.Println("  ── neovim plugin (optional) ──")
+		fmt.Println("  Gives flowd your exact filetype on every buffer switch, before")
+		fmt.Println("  any git commit lands. Works with or without a plugin manager.")
+		fmt.Println()
+
+		if NvimPluginInstalled() {
+			fmt.Printf("  already installed: %s/plugin/flowd.lua\n", nvimConfigDir())
+		} else if askBool(r, "install flowd.lua into ~/.config/nvim/plugin/", true) {
+			if dest, err := InstallNvimPlugin(); err != nil {
+				fmt.Printf("  warn: could not install plugin: %v\n", err)
+			} else {
+				fmt.Printf("  installed → %s\n", dest)
+			}
+		}
+	}
+
 	return cfg, nil
+}
+
+// aiPreset is a known AI CLI that flowd can auto-detect.
+type aiPreset struct {
+	name    string // display name
+	binary  string // executable to look for in PATH
+	command string // ai_command value to write to config
+}
+
+var aiPresets = []aiPreset{
+	{name: "pi",       binary: "pi",     command: "pi -p --model haiku"},
+	{name: "claude",   binary: "claude", command: "claude --print"},
+	{name: "gemini",   binary: "gemini", command: "gemini -p --model gemini-2.0-flash-lite"},
+	{name: "llm",      binary: "llm",    command: "llm -m gpt-4o-mini"},
+	{name: "aider",    binary: "aider",  command: "aider --no-pretty"},
+}
+
+// pickAICommand auto-detects installed AI CLIs, shows a numbered list, and
+// returns the chosen command + whether AI is enabled.
+func pickAICommand(r *bufio.Reader) (cmd string, enabled bool) {
+	// Find installed presets.
+	var found []aiPreset
+	for _, p := range aiPresets {
+		if _, err := exec.LookPath(p.binary); err == nil {
+			found = append(found, p)
+		}
+	}
+
+	if len(found) == 0 {
+		fmt.Println("  No supported AI CLI detected in PATH.")
+		fmt.Println("  Supported: pi, claude, gemini, llm, aider (or any stdin→stdout tool).")
+		fmt.Println()
+		custom := ask(r, "ai_command (blank to skip)", "")
+		if custom == "" {
+			return "", false
+		}
+		return custom, true
+	}
+
+	fmt.Println("  Detected on your system:")
+	for i, p := range found {
+		fmt.Printf("    %d) %-10s →  %s\n", i+1, p.name, p.command)
+	}
+	fmt.Println("    0) skip — no AI")
+	fmt.Println()
+
+	defaultChoice := "1" // first detected tool
+	choiceStr := ask(r, "choice", defaultChoice)
+	n, err := strconv.Atoi(strings.TrimSpace(choiceStr))
+	if err != nil {
+		// Treat non-numeric input as a custom command.
+		if strings.TrimSpace(choiceStr) != "" {
+			return choiceStr, true
+		}
+		return "", false
+	}
+	if n == 0 || n > len(found) {
+		return "", false
+	}
+	return found[n-1].command, true
 }
 
 // SetupRepo prepares the journal repo. If a remote is given and the path
@@ -188,7 +288,7 @@ func writeGitignore(repoPath string) error {
 }
 
 func AskTmuxAutostart() bool {
-	return askBool(bufio.NewReader(os.Stdin), "start fw automatically when tmux starts", false)
+	return askBool(bufio.NewReader(os.Stdin), "start fw automatically when tmux starts", true)
 }
 
 func SetupTmuxAutostart() error {
