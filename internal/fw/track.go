@@ -104,6 +104,14 @@ func (t *Tracker) waitForTmux(ctx context.Context) {
 }
 
 func (t *Tracker) poll() {
+	if ScreenClosed() {
+		if t.last != nil {
+			slog.Debug("screen closed, pausing tracking")
+			t.last = nil
+		}
+		return
+	}
+
 	session, idle := AttachedSession()
 	if session == "" {
 		if t.last != nil {

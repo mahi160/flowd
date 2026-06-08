@@ -2,6 +2,7 @@ package fw
 
 import (
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
@@ -37,6 +38,20 @@ func initPlatform(machineName string) {
 			Machine:  name,
 		}
 	})
+}
+
+// ScreenClosed reports whether the laptop lid is physically closed.
+// Only implemented on macOS (via IOKit's AppleClamshellState); returns false
+// on all other platforms so tracking continues normally.
+func ScreenClosed() bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+	out, err := exec.Command("ioreg", "-r", "-k", "AppleClamshellState", "-d", "4").Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(string(out), `"AppleClamshellState" = Yes`)
 }
 
 func GetPlatform() *Platform {
