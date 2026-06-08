@@ -94,10 +94,15 @@ func CommitJournal(ctx context.Context, repoPath, branch string) error {
 	return nil
 }
 
-// PushJournal commits any pending changes and pushes to the remote with retry.
+// PushJournal commits any pending changes, rebases on remote, then pushes.
 func PushJournal(ctx context.Context, repoPath, branch string) error {
 	if err := CommitJournal(ctx, repoPath, branch); err != nil {
 		return err
+	}
+	// Rebase on remote before pushing to avoid non-fast-forward rejections.
+	if out, err := runGit(ctx, repoPath, "pull", "--rebase", "origin", branch); err != nil {
+		slog.Warn("journal pull --rebase", "out", strings.TrimSpace(out))
+		// Not fatal — try pushing anyway (e.g. no remote commits yet).
 	}
 	for i := range 3 {
 		if err := git(ctx, repoPath, "push", "origin", branch); err == nil {
