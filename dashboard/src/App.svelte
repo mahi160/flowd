@@ -102,18 +102,18 @@
       {/if}
 
       <!-- ── Hero numbers ──────────────────────────────────────────────── -->
-      <HeroStrip {data} label={view} />
+      <HeroStrip {data} label={periodLabel} />
 
       <!-- ── Breakdowns ────────────────────────────────────────────────── -->
       <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
         <Donut
           title="By project"
-          subtitle="{view} · top projects"
+          subtitle="{periodLabel} · top projects"
           items={data.byProject}
         />
         <Donut
           title="By command"
-          subtitle="{view} · top tools"
+          subtitle="{periodLabel} · top tools"
           items={data.byCommand.slice(0, 8)}
         />
         <Languages {data} />
