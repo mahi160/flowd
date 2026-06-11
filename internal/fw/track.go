@@ -23,6 +23,17 @@ type pidCacheEntry struct {
 
 const pidCacheTTL = 5 * time.Second
 
+// nvimCacheEntry caches the most recently read filetype for a nvim pane CWD
+// so we don't scan the state directory on every 3-second poll tick.
+type nvimCacheEntry struct {
+	filetype  string
+	expiresAt time.Time
+}
+
+// nvimCacheTTL is shorter than nvimStateTTL (15s) so the cached value is
+// refreshed well before the state file itself would go stale.
+const nvimCacheTTL = 5 * time.Second
+
 // classifyCommand maps a process name to a tool category used for
 // language inference. The raw command name is stored in ByTool;
 // the category is an internal grouping only.
@@ -72,6 +83,9 @@ type Tracker struct {
 	// pidCache caches AI-CLI resolution per pane PID to avoid calling
 	// ResolveAICLI on every 3-second tick (only used for interpreter panes).
 	pidCache  map[int]pidCacheEntry
+	// nvimCache caches the nvim plugin filetype per pane CWD to avoid
+	// scanning the state directory on every poll tick.
+	nvimCache map[string]nvimCacheEntry
 	pollCount int // used to schedule periodic cache cleanup
 }
 
@@ -87,6 +101,7 @@ func NewTracker(d *DB, pollSec, idleSec int, watchDirs []string) *Tracker {
 		watchDirs: dirs,
 		repoCache: map[string]string{},
 		pidCache:  map[int]pidCacheEntry{},
+		nvimCache: map[string]nvimCacheEntry{},
 	}
 }
 
@@ -130,6 +145,11 @@ func (t *Tracker) poll() {
 		for pid, entry := range t.pidCache {
 			if now.After(entry.expiresAt) {
 				delete(t.pidCache, pid)
+			}
+		}
+		for cwd, entry := range t.nvimCache {
+			if now.After(entry.expiresAt) {
+				delete(t.nvimCache, cwd)
 			}
 		}
 	}
@@ -182,7 +202,7 @@ func (t *Tracker) poll() {
 	// the plugin names its file after nvim's own PID (different process).
 	var nvimFT string
 	if cmd == "nvim" {
-		nvimFT = NvimFiletype(p.Cwd)
+		nvimFT = t.resolveNvimFiletype(p.Cwd)
 	}
 
 	pl := GetPlatform()
@@ -245,6 +265,18 @@ func (t *Tracker) resolveCommand(p *Pane) (cmd, cat string) {
 		return tool, "ai"
 	}
 	return cmd, cat
+}
+
+// resolveNvimFiletype returns the filetype for a nvim pane, using a short-lived
+// cache to avoid scanning the state directory on every 3-second poll tick.
+func (t *Tracker) resolveNvimFiletype(cwd string) string {
+	now := time.Now()
+	if e, ok := t.nvimCache[cwd]; ok && now.Before(e.expiresAt) {
+		return e.filetype
+	}
+	ft := NvimFiletype(cwd)
+	t.nvimCache[cwd] = nvimCacheEntry{filetype: ft, expiresAt: now.Add(nvimCacheTTL)}
+	return ft
 }
 
 func (t *Tracker) inWatchDirs(cwd string) bool {

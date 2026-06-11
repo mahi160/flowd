@@ -13,16 +13,6 @@ import (
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-// StandupProject is the per-project summary fed to the AI.
-type StandupProject struct {
-	Name       string
-	FocusedMin int
-	FilesChanged int
-	LinesAdded  int
-	LinesDel    int
-	Commits     []Commit
-}
-
 // Standup is the generated standup text plus metadata.
 type Standup struct {
 	Text      string    // AI-generated text; "" if AI is disabled
@@ -41,8 +31,13 @@ var (
 
 func cacheKey(blocks []Block) string {
 	h := sha256.New()
+	// Include a 30-min time bucket so the cache self-expires through the day
+	// as new commits land, without requiring an explicit invalidation.
+	bucket := time.Now().Truncate(30 * time.Minute).Unix()
+	fmt.Fprintf(h, "t=%d", bucket)
 	for _, b := range blocks {
-		fmt.Fprintf(h, "%s%d", b.StartTS.Format("2006-01-02"), b.FocusedMin)
+		// Include repo so two projects with identical minutes get distinct keys.
+		fmt.Fprintf(h, "|%s:%s:%d", b.StartTS.Format("2006-01-02"), b.Repo, b.FocusedMin)
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))[:16]
 }
@@ -58,7 +53,9 @@ func cacheKey(blocks []Block) string {
 // Results are cached by a hash of the input blocks so repeated calls within
 // the same daemon session are free.
 func BuildStandup(ctx context.Context, cfg *Config, todayBlocks, yestBlocks []Block) (*Standup, error) {
-	allBlocks := append(todayBlocks, yestBlocks...)
+	allBlocks := make([]Block, 0, len(todayBlocks)+len(yestBlocks))
+	allBlocks = append(allBlocks, todayBlocks...)
+	allBlocks = append(allBlocks, yestBlocks...)
 	if len(allBlocks) == 0 {
 		return &Standup{Raw: "(no activity today or yesterday)"}, nil
 	}
@@ -197,13 +194,16 @@ func buildRaw(todayBlocks, yestBlocks []Block) string {
 
 // commitsForBlocks fetches recent git commits for a named repo, using the
 // cwd values embedded in block events to find the repo root.
+//
+// b.Project holds the pane's working directory (set by topKey(projCt) in
+// BuildBlock — it is a filesystem path, not a display name). We use it as
+// the cwd hint for RepoRoot.
 func commitsForBlocks(blocks []Block, repoName string, since time.Time) []Commit {
-	// Find any block for this repo and extract a cwd we can use as a root hint.
 	for _, b := range blocks {
-		root := ""
-		if b.Repo == repoName && b.Project != "" {
-			root = RepoRoot(b.Project)
+		if b.Repo != repoName || b.Project == "" {
+			continue
 		}
+		root := RepoRoot(b.Project) // b.Project is a cwd path
 		if root == "" {
 			continue
 		}
