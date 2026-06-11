@@ -262,13 +262,14 @@ func assembleSections(original string, sections map[string]string, targetDay tim
 
 	for _, heading := range order {
 		if s, ok := sections[heading]; ok {
-			sb.WriteString(s)
-			if !strings.HasSuffix(s, "\n") {
-				sb.WriteString("\n")
-			}
+			// Normalise: always end each section with exactly one blank line so
+			// sections are separated consistently regardless of whether the
+			// content came from the existing file or was freshly built.
+			sb.WriteString(strings.TrimRight(s, "\n"))
+			sb.WriteString("\n\n")
 		}
 	}
-	return sb.String()
+	return strings.TrimRight(sb.String(), "\n") + "\n"
 }
 
 // dayFromHeading parses a date from a "### Monday, 02 Jan" heading for
