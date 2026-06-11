@@ -1,12 +1,10 @@
 package fw
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/mahi160/flowd/internal/ai_sessions"
@@ -62,17 +60,54 @@ func cmdInit() *cobra.Command {
 			if err := SetupRepo(cfg.RepoPath, cfg.GitRemote, cfg.Branch); err != nil {
 				fmt.Printf("  warn: repo setup: %v\n", err)
 			}
-			if AskTmuxAutostart() {
+			tmuxAutostart := AskTmuxAutostart()
+			if tmuxAutostart {
 				if err := SetupTmuxAutostart(); err != nil {
 					fmt.Printf("  warn: tmux autostart: %v\n", err)
 				}
 			}
-			fmt.Println("\n  run `fw start` to begin tracking")
+			printReadyBanner(cfg.DBPath(), tmuxAutostart)
 			return nil
 		},
 	}
 	c.Flags().BoolVar(&force, "force", false, "overwrite existing config")
 	return c
+}
+
+func printReadyBanner(dbPath string, tmuxAutostart bool) {
+	const (
+		reset  = "\033[0m"
+		bold   = "\033[1m"
+		dim    = "\033[2m"
+		green  = "\033[32m"
+		cyan   = "\033[36m"
+		indigo = "\033[94m"
+	)
+
+	startLine := "  " + bold + cyan + "fw start" + reset + dim + "            start the daemon" + reset
+	if tmuxAutostart {
+		startLine = "  " + dim + "fw start" + reset + dim + "            (runs automatically with tmux ✓)" + reset
+	}
+
+	fmt.Print(`
+` + bold + indigo + `
+  ██████╗  ██╗      ██████╗ ██╗    ██╗██████╗
+  ██╔════╝ ██║     ██╔═══██╗██║    ██║██╔══██╗
+  █████╗   ██║     ██║   ██║██║ █╗ ██║██║  ██║
+  ██╔══╝   ██║     ██║   ██║██║███╗██║██║  ██║
+  ██║      ███████╗╚██████╔╝╚███╔███╔╝██████╔╝
+  ╚═╝      ╚══════╝ ╚═════╝  ╚══╝╚══╝ ╚═════╝` + reset + `
+`)
+
+	fmt.Println("  " + dim + "───────────────────────────────────────────────" + reset)
+	fmt.Println(startLine)
+	fmt.Println("  " + bold + cyan + "fw dashboard" + reset + dim + "        open the dashboard" + reset)
+	fmt.Println("  " + bold + cyan + "fw report today" + reset + dim + "     today’s activity" + reset)
+	fmt.Println("  " + bold + cyan + "fw status" + reset + dim + "           daemon status" + reset)
+	fmt.Println("  " + dim + "───────────────────────────────────────────────" + reset)
+	fmt.Println("  " + dim + "logs  ~/.local/share/flowd/flowd.log" + reset)
+	fmt.Println("  " + dim + "db    " + dbPath + reset)
+	fmt.Println()
 }
 
 func cmdSummary() *cobra.Command {
@@ -150,7 +185,7 @@ func cmdReport() *cobra.Command {
 }
 
 func cmdDashboard() *cobra.Command {
-	var noOpen, aiRecap bool
+	var noOpen bool
 	var outFlag string
 	c := &cobra.Command{
 		Use:   "dashboard [today|week|month|year|all]",
@@ -181,7 +216,7 @@ argument sets which tab is shown first (default: today).`,
 			}
 
 			// Load blocks and AI rows for every period.
-			allPeriods := []string{"today", "week", "month", "year", "all"}
+			allPeriods := []string{"today", "yesterday", "week", "month", "year", "all"}
 			allBlocks := map[string][]Block{}
 			allAIRows := map[string][]aiRawRow{}
 			for _, p := range allPeriods {
@@ -203,18 +238,14 @@ argument sets which tab is shown first (default: today).`,
 
 			payload := buildDashPayload(initialPeriod, allBlocks, allAIRows, streakDays)
 
-			// AI recap runs on the initial period's blocks when requested.
-			if aiRecap {
-				if !cfg.AIEnabled || cfg.AICommand == "" {
-					fmt.Println("note: --ai-recap requires ai_enabled + ai_command in config; skipping")
-				} else {
-					recap, err := runAIRecap(cmd.Context(), cfg, allBlocks[initialPeriod], initialPeriod)
-					if err != nil {
-						fmt.Printf("note: ai recap failed: %v\n", err)
-					} else {
-						payload.AIRecap = recap
-					}
-				}
+			// Build today/yesterday standup (replaces the old --ai-recap flag).
+			standup, err := BuildStandup(cmd.Context(), cfg,
+				allBlocks["today"], allBlocks["yesterday"])
+			if err != nil {
+				slog.Warn("standup build", "err", err)
+			} else if standup != nil {
+				payload.Standup = standup.Text
+				payload.StandupRaw = standup.Raw
 			}
 
 			out := outFlag
@@ -234,28 +265,8 @@ argument sets which tab is shown first (default: today).`,
 		},
 	}
 	c.Flags().BoolVar(&noOpen, "no-open", false, "do not open the browser")
-	c.Flags().BoolVar(&aiRecap, "ai-recap", false, "run AI on the initial period's blocks (slow)")
 	c.Flags().StringVar(&outFlag, "out", "", "output file path (default: $TMPDIR/flowd.html)")
 	return c
-}
-
-func runAIRecap(ctx context.Context, cfg *Config, blocks []Block, period string) (string, error) {
-	if len(blocks) == 0 {
-		return "", nil
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "Period: %s\n\n", period)
-	for _, bl := range blocks {
-		b.WriteString(bl.Summary)
-		b.WriteString("\n")
-	}
-	prompt := cfg.AIPrompt
-	if prompt == "" {
-		prompt = "Give me a 3-bullet recap of this coding period: what was worked on, patterns noticed, and one suggestion. Be concise."
-	} else {
-		prompt = "Aggregate recap of multiple coding blocks. " + prompt
-	}
-	return RunAI(ctx, cfg.AICommand, prompt, b.String())
 }
 
 func cmdSetupTmux() *cobra.Command {
@@ -266,4 +277,33 @@ func cmdSetupTmux() *cobra.Command {
 			return SetupTmuxAutostart()
 		},
 	}
+}
+
+func cmdSetupNvim() *cobra.Command {
+	var force bool
+	c := &cobra.Command{
+		Use:   "setup-nvim",
+		Short: "Install the flowd.lua neovim plugin",
+		Long: `Writes the bundled flowd.lua to ~/.config/nvim/plugin/flowd.lua.
+
+The plugin reports your active filetype to flowd on every buffer switch,
+giving accurate language attribution before a git commit lands.
+It works with or without a plugin manager and is fully optional.`,
+		RunE: func(*cobra.Command, []string) error {
+			if NvimPluginInstalled() && !force {
+				fmt.Printf("already installed: %s/plugin/flowd.lua\n", nvimConfigDir())
+				fmt.Println("run with --force to overwrite")
+				return nil
+			}
+			dest, err := InstallNvimPlugin()
+			if err != nil {
+				return err
+			}
+			fmt.Printf("installed → %s\n", dest)
+			fmt.Println("restart nvim (or :source the file) to activate.")
+			return nil
+		},
+	}
+	c.Flags().BoolVar(&force, "force", false, "overwrite existing plugin file")
+	return c
 }

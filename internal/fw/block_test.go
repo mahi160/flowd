@@ -106,6 +106,122 @@ func TestBuildBlockContextSwitches(t *testing.T) {
 	}
 }
 
+// TestBuildBlockAIPaneNoPhantomLang verifies that when an event carries
+// Category:"ai" (as set by the proctree resolver relabelling an interpreter
+// pane), no phantom runtime language (JavaScript/Python/…) leaks into
+// Block.Languages.
+// TestBuildBlockNvimPluginLanguage verifies that when PaneMeta carries a
+// NvimFiletype (from the flowd.lua plugin), the block's Languages map reflects
+// the plugin-provided language rather than falling back to git-diff.
+func TestBuildBlockNvimPluginLanguage(t *testing.T) {
+	d := openTestDB(t)
+	start := time.Now().UTC().Truncate(time.Minute)
+	end := start.Add(30 * time.Minute)
+	const pollSec = 60
+
+	// 20 ticks × 60 s = 20 min in nvim editing a Go file (plugin reports ft=go).
+	seedNvimEvents(t, d, start, pollSec, 20, PaneMeta{
+		Session: "main", Window: "editor", Pane: "0",
+		Command: "nvim", Category: "editor",
+		Cwd: "/tmp/proj", Repo: "proj",
+		NvimFiletype: "go",
+	})
+
+	b, err := BuildBlock(context.Background(), d, start, end, pollSec, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Languages["Go"] == 0 {
+		t.Errorf("expected Go in Languages; got %v", b.Languages)
+	}
+	// No other language should appear from the nvim path.
+	for lang, min := range b.Languages {
+		if lang != "Go" && min > 0 {
+			t.Errorf("unexpected language %q (%d min)", lang, min)
+		}
+	}
+}
+
+// TestBuildBlockNvimFallback verifies that when NvimFiletype is empty (plugin
+// absent), the block builder does not error and still builds correctly.
+func TestBuildBlockNvimFallback(t *testing.T) {
+	d := openTestDB(t)
+	start := time.Now().UTC().Truncate(time.Minute)
+	end := start.Add(30 * time.Minute)
+	const pollSec = 60
+
+	seedEvents(t, d, start, pollSec, 20, PaneMeta{
+		Session: "main", Window: "editor", Pane: "0",
+		Command: "nvim", Category: "editor",
+		Cwd: "/tmp/proj", Repo: "",
+		NvimFiletype: "", // plugin absent
+	})
+
+	b, err := BuildBlock(context.Background(), d, start, end, pollSec, false)
+	if err != nil {
+		t.Fatalf("fallback should not error: %v", err)
+	}
+	if b.FocusedMin == 0 {
+		t.Error("expected non-zero FocusedMin even without nvim plugin")
+	}
+}
+
+// seedNvimEvents is like seedEvents but stores the full PaneMeta including
+// NvimFiletype by encoding the whole struct as meta JSON.
+func seedNvimEvents(t *testing.T, d *DB, start time.Time, pollSec int, count int, meta PaneMeta) {
+	t.Helper()
+	raw, _ := json.Marshal(meta)
+	for i := 0; i < count; i++ {
+		ts := start.Add(time.Duration(i*pollSec) * time.Second)
+		if _, err := d.Exec(
+			`INSERT INTO events (ts, type, value, meta) VALUES (?, ?, ?, ?)`,
+			ts.UTC(), EvActive, meta.Pane, string(raw),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestBuildBlockAIPaneNoPhantomLang(t *testing.T) {
+	d := openTestDB(t)
+	start := time.Now().UTC().Truncate(time.Minute)
+	end := start.Add(30 * time.Minute)
+	const pollSec = 3
+
+	// Simulate 300 ticks where the pane command is "node" but Category="ai"
+	// (what track.resolveCommand produces after proctree resolution).
+	seedEvents(t, d, start, pollSec, 300, PaneMeta{
+		Session:  "main",
+		Window:   "ai",
+		Pane:     "0",
+		Command:  "pi",   // relabelled by proctree resolver
+		Category: "ai",  // ← key: NOT "runtime"
+		Cwd:      "/tmp/proj",
+		Repo:     "proj",
+	})
+
+	b, err := BuildBlock(context.Background(), d, start, end, pollSec, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Time should appear under "pi", not "node".
+	if b.ByTool["pi"] == 0 {
+		t.Error("expected pi in ByTool")
+	}
+	if b.ByTool["node"] != 0 {
+		t.Errorf("node should not appear in ByTool after relabelling, got %d min", b.ByTool["node"])
+	}
+
+	// No phantom JS/Python language should appear since Category!="runtime".
+	if min := b.Languages["JavaScript"]; min != 0 {
+		t.Errorf("phantom JavaScript in Languages: %d min", min)
+	}
+	if min := b.Languages["Python"]; min != 0 {
+		t.Errorf("phantom Python in Languages: %d min", min)
+	}
+}
+
 func TestTopKey(t *testing.T) {
 	m := map[string]int{"a": 1, "b": 5, "c": 3}
 	if got := topKey(m); got != "b" {

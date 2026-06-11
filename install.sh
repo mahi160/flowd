@@ -37,6 +37,7 @@ esac
 # ── dependency check ──────────────────────────────────────────────────────────
 check() { command -v "$1" &>/dev/null || die "$1 not found — $2"; }
 check tmux "install tmux via your package manager"
+check git  "install git via your package manager"
 
 # ── resolve latest release tag ────────────────────────────────────────────────
 info "resolving latest release..."

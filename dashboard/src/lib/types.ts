@@ -89,7 +89,10 @@ export type RawPayload = {
   machine?: string;
   os?: string;
   streak_days?: number;
-  ai_recap?: string;
+  /** AI-generated today/yesterday standup text. */
+  standup?: string;
+  /** Structured standup input (always present when there is recent activity). */
+  standup_raw?: string;
   periods?: Record<string, RawPeriodData>;
 };
 

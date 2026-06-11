@@ -44,9 +44,10 @@ func DefaultConfig() *Config {
 		Branch:           "main",
 		MachineName:      machine,
 		WatchDirs:        []string{home},
-		AIEnabled:        true,
-		AICommand:        "pi -p --model haiku",
-		AIPrompt:         "Summarize this coding session (30 focused minutes) in 2 short sentences. Focus on what was accomplished and any patterns. Be concise.",
+		// AI is disabled by default. fw init sets it when the user picks a command.
+		AIEnabled: false,
+		AICommand: "",
+		AIPrompt:  "Summarize this coding session (30 focused minutes) in 2 short sentences. Focus on what was accomplished and any patterns. Be concise.",
 		AISessionPaths: map[string]string{
 			"claude-code": filepath.Join(home, ".claude/projects"),
 			"pi":          filepath.Join(home, ".pi/agent/sessions"),

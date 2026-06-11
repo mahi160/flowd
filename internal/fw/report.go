@@ -121,6 +121,9 @@ func PeriodRange(period string, now time.Time) (time.Time, time.Time) {
 	case "year":
 		return time.Date(y, 1, 1, 0, 0, 0, 0, loc),
 			time.Date(y+1, 1, 1, 0, 0, 0, 0, loc)
+	case "yesterday":
+		start := time.Date(y, m, d, 0, 0, 0, 0, loc).AddDate(0, 0, -1)
+		return start, start.Add(24 * time.Hour)
 	case "all":
 		// 10-year lookback safely covers all stored data.
 		return now.AddDate(-10, 0, 0),

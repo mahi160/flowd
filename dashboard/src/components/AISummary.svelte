@@ -119,11 +119,5 @@
       </div>
     {/if}
 
-    {#if data.aiRecap}
-      <div class="mt-5 pt-4 border-t border-stone-100 dark:border-stone-800">
-        <div class="uppercase tracking-widest text-[10px] font-mono text-stone-400 mb-2">AI Recap</div>
-        <p class="text-xs text-stone-600 dark:text-stone-300 leading-relaxed bg-indigo-50 dark:bg-indigo-950/30 border-l-2 border-indigo-500 py-2.5 px-3.5 rounded-r-md whitespace-pre-wrap">{data.aiRecap}</p>
-      </div>
-    {/if}
   {/if}
 </section>
