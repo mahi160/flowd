@@ -98,13 +98,11 @@ type dashPayload struct {
 	StreakDays    int                    `json:"streak_days"`
 	// Standup is the AI-generated today/yesterday standup text.
 	// Empty when AI is disabled or no blocks exist for today/yesterday.
-	Standup       string                 `json:"standup,omitempty"`
+	Standup    string                 `json:"standup,omitempty"`
 	// StandupRaw is the structured input (always present when there is
 	// recent activity) — rendered verbatim when AI is disabled.
-	StandupRaw    string                 `json:"standup_raw,omitempty"`
-	// AIRecap is the legacy period-level recap (kept for backwards compat).
-	AIRecap       string                 `json:"ai_recap,omitempty"`
-	Periods       map[string]*periodData `json:"periods"`
+	StandupRaw string                 `json:"standup_raw,omitempty"`
+	Periods    map[string]*periodData `json:"periods"`
 }
 
 //go:embed static

@@ -40,9 +40,8 @@ export function transform(raw: RawPayload = {}, period: string = "today") {
     os:           raw.os         || "",
     streakDays,
     // standup: AI text when available, falls back to raw structured text.
-    standup:      raw.standup    || raw.standup_raw || null,
-    standupIsAI:  !!(raw.standup && raw.standup.trim().length > 0),
-    aiRecap:      raw.ai_recap   || null,
+    standup:     raw.standup    || raw.standup_raw || null,
+    standupIsAI: !!(raw.standup && raw.standup.trim().length > 0),
 
     // Period identity
     period: period as "today" | "week" | "month" | "year" | "all",

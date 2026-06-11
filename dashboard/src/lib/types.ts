@@ -93,8 +93,6 @@ export type RawPayload = {
   standup?: string;
   /** Structured standup input (always present when there is recent activity). */
   standup_raw?: string;
-  /** Legacy per-period recap (kept for backwards compat). */
-  ai_recap?: string;
   periods?: Record<string, RawPeriodData>;
 };
 
