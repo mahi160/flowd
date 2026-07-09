@@ -122,10 +122,13 @@ jobs:
             -ldflags "-s -w -X github.com/mahi160/flowd/internal/fw.Version=${{ needs.semantic-release.outputs.version }}" \
             -o fw-${{ matrix.goos }}-${{ matrix.goarch }} \
             ./cmd/fw
+          sha256sum fw-${{ matrix.goos }}-${{ matrix.goarch }} \
+            > fw-${{ matrix.goos }}-${{ matrix.goarch }}.sha256
 
       - name: Upload binary to release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ needs.semantic-release.outputs.tag_name }} \
-            fw-${{ matrix.goos }}-${{ matrix.goarch }} --clobber
+            fw-${{ matrix.goos }}-${{ matrix.goarch }} \
+            fw-${{ matrix.goos }}-${{ matrix.goarch }}.sha256 --clobber
