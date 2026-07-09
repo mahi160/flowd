@@ -15,7 +15,7 @@ func cmdScanAI() *cobra.Command {
 	return &cobra.Command{
 		Use:   "scan-ai",
 		Short: "Manually trigger AI session scan",
-		RunE: func(*cobra.Command, []string) error {
+		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := LoadConfig(cfgPath)
 			if err != nil {
 				return err
@@ -26,7 +26,7 @@ func cmdScanAI() *cobra.Command {
 			}
 			defer d.Close()
 			svc := ai_sessions.NewService(d.DB, cfg.AISessionPaths)
-			return svc.RunSync()
+			return svc.RunSync(cmd.Context())
 		},
 	}
 }
@@ -215,22 +215,25 @@ argument sets which tab is shown first (default: today).`,
 				initialPeriod = args[0]
 			}
 
-			// Load blocks and AI rows for every period.
-			allPeriods := []string{"today", "yesterday", "week", "month", "year", "all"}
+			// Every period is a sub-range of "all", so load the DB once and
+			// slice in memory instead of running 12 overlapping queries.
+			now := time.Now()
+			allStart, allEnd := PeriodRange("all", now)
+			blocks, err := LoadBlocks(cmd.Context(), d, allStart, allEnd)
+			if err != nil {
+				return fmt.Errorf("load blocks: %w", err)
+			}
+			aiRows, err := loadAIRows(cmd.Context(), d, allStart, allEnd)
+			if err != nil {
+				slog.Warn("load ai sessions", "err", err)
+			}
+
 			allBlocks := map[string][]Block{}
 			allAIRows := map[string][]aiRawRow{}
-			for _, p := range allPeriods {
-				start, end := PeriodRange(p, time.Now())
-				blocks, err := LoadBlocks(cmd.Context(), d, start, end)
-				if err != nil {
-					return fmt.Errorf("load blocks for %s: %w", p, err)
-				}
-				allBlocks[p] = blocks
-				rows, err := loadAIRows(cmd.Context(), d, start, end)
-				if err != nil {
-					slog.Warn("load ai sessions", "period", p, "err", err)
-				}
-				allAIRows[p] = rows
+			for _, p := range []string{"today", "yesterday", "week", "month", "year", "all"} {
+				start, end := PeriodRange(p, now)
+				allBlocks[p] = filterRange(blocks, start, end, func(b Block) time.Time { return b.StartTS })
+				allAIRows[p] = filterRange(aiRows, start, end, func(r aiRawRow) time.Time { return r.Timestamp })
 			}
 
 			// Streak uses all historical blocks.
@@ -267,6 +270,17 @@ argument sets which tab is shown first (default: today).`,
 	c.Flags().BoolVar(&noOpen, "no-open", false, "do not open the browser")
 	c.Flags().StringVar(&outFlag, "out", "", "output file path (default: $TMPDIR/flowd.html)")
 	return c
+}
+
+// filterRange returns the items whose timestamp falls in [start, end).
+func filterRange[T any](items []T, start, end time.Time, ts func(T) time.Time) []T {
+	var out []T
+	for _, it := range items {
+		if t := ts(it); !t.Before(start) && t.Before(end) {
+			out = append(out, it)
+		}
+	}
+	return out
 }
 
 func cmdSetupTmux() *cobra.Command {

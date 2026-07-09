@@ -37,15 +37,15 @@ type AggregatedSession struct {
 
 // ToolSummary is the per-tool aggregate sent to the dashboard.
 type ToolSummary struct {
-	Tool           string             `json:"tool"`
-	TotalCost      float64            `json:"total_cost"`
-	TotalInput     int                `json:"total_input"`
-	TotalOutput    int                `json:"total_output"`
-	TotalCache     int                `json:"total_cache"`
-	SessionCount   int                `json:"session_count"`
-	MessageCount   int                `json:"message_count"`
-	TopModel       string             `json:"top_model"`
-	ModelBreakdown map[string]int     `json:"model_breakdown"`
+	Tool           string              `json:"tool"`
+	TotalCost      float64             `json:"total_cost"`
+	TotalInput     int                 `json:"total_input"`
+	TotalOutput    int                 `json:"total_output"`
+	TotalCache     int                 `json:"total_cache"`
+	SessionCount   int                 `json:"session_count"`
+	MessageCount   int                 `json:"message_count"`
+	TopModel       string              `json:"top_model"`
+	ModelBreakdown map[string]int      `json:"model_breakdown"`
 	Sessions       []AggregatedSession `json:"sessions"`
 }
 
@@ -73,8 +73,4 @@ var processors = make(map[string]Processor)
 
 func Register(p Processor) {
 	processors[p.Name()] = p
-}
-
-func GetProcessors() map[string]Processor {
-	return processors
 }

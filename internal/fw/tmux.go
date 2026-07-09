@@ -85,4 +85,3 @@ func ActivePane(session string) (*Pane, error) {
 	}
 	return parsePane(string(out))
 }
-

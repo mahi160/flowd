@@ -59,8 +59,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_sessions_unique
   ON ai_sessions_raw(tool, session_id, ts);
 
 CREATE TABLE IF NOT EXISTS ai_sessions_watermark (
-  tool   TEXT PRIMARY KEY,
-  offset INTEGER NOT NULL DEFAULT 0
+  tool      TEXT PRIMARY KEY,
+  offset    INTEGER NOT NULL DEFAULT 0,
+  file_size INTEGER NOT NULL DEFAULT 0
 );
 `
 
@@ -161,8 +162,11 @@ func OpenDB(path string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return nil, fmt.Errorf("create db dir: %w", err)
 	}
-	// _loc=UTC ensures time.Time values are scanned in UTC.
-	dsn := path + "?_journal_mode=WAL&_busy_timeout=5000&_loc=UTC"
+	// modernc.org/sqlite uses _pragma=name(value) DSN params. The older
+	// mattn-style params (_journal_mode=WAL&_busy_timeout=5000) are silently
+	// ignored by this driver, which left the DB in delete-journal mode with
+	// busy_timeout=0 ("database is locked" races between daemon and CLI).
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
 	conn, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -178,6 +182,7 @@ func OpenDB(path string) (*DB, error) {
 	_, _ = conn.Exec(`ALTER TABLE blocks ADD COLUMN data TEXT NOT NULL DEFAULT ''`)
 	_, _ = conn.Exec(`ALTER TABLE blocks ADD COLUMN ai_summary TEXT NOT NULL DEFAULT ''`)
 	_, _ = conn.Exec(`ALTER TABLE ai_sessions_raw ADD COLUMN model TEXT NOT NULL DEFAULT ''`)
+	_, _ = conn.Exec(`ALTER TABLE ai_sessions_watermark ADD COLUMN file_size INTEGER NOT NULL DEFAULT 0`)
 
 	// Dedup blocks — keep latest id per start_ts.
 	_, _ = conn.Exec(`DELETE FROM blocks WHERE id NOT IN (

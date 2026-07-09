@@ -36,55 +36,46 @@ type Block struct {
 // it inserts a row into the blocks table (use false for ad-hoc previews).
 func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, persist bool) (*Block, error) {
 	rows, err := d.QueryContext(ctx,
-		`SELECT type, value, meta FROM events WHERE ts >= ? AND ts < ? ORDER BY ts`,
+		`SELECT type, meta FROM events WHERE ts >= ? AND ts < ? ORDER BY ts`,
 		start.UTC(), end.UTC())
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	type ev struct{ typ, val, meta string }
-	var events []ev
-	for rows.Next() {
-		var e ev
-		if err := rows.Scan(&e.typ, &e.val, &e.meta); err != nil {
-			return nil, err
-		}
-		events = append(events, e)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-
 	b := &Block{
 		StartTS: start, EndTS: end,
 		ByTool: map[string]int{}, ByProject: map[string]int{},
 		Languages: map[string]int{}, ByMachine: map[string]int{},
 	}
-	repoCt        := map[string]int{}
-	projCt        := map[string]int{}
-	repoSet       := map[string]struct{}{}
-	editorByRepo  := map[string]int{}  // repo → editor ticks (git-diff path)
-	runtimeByCmd  := map[string]int{}  // command → runtime ticks (for lang inference)
-	cwdNoRepo     := map[string]int{}  // cwd → editor ticks (no git repo)
-	nvimLangTicks := map[string]int{}  // filetype → ticks (from nvim plugin; bypasses git-diff)
-	activeTicks   := 0
+	repoCt := map[string]int{}
+	projCt := map[string]int{}
+	repoCwd := map[string]string{}    // repo → a cwd inside it (for RepoRoot lookup)
+	editorByRepo := map[string]int{}  // repo → editor ticks (git-diff path)
+	runtimeByCmd := map[string]int{}  // command → runtime ticks (for lang inference)
+	cwdNoRepo := map[string]int{}     // cwd → editor ticks (no git repo)
+	nvimLangTicks := map[string]int{} // filetype → ticks (from nvim plugin; bypasses git-diff)
+	activeTicks := 0
 
 	secPerTick := pollSec
 	if secPerTick <= 0 {
 		secPerTick = 3
 	}
 
-	for _, e := range events {
-		if e.typ == EvSessionChange {
+	for rows.Next() {
+		var typ, meta string
+		if err := rows.Scan(&typ, &meta); err != nil {
+			return nil, err
+		}
+		if typ == EvSessionChange {
 			b.Switches++
 		}
-		if e.typ != EvActive {
+		if typ != EvActive {
 			continue
 		}
 		activeTicks++
 		var m PaneMeta
-		if err := json.Unmarshal([]byte(e.meta), &m); err != nil {
+		if err := json.Unmarshal([]byte(meta), &m); err != nil {
 			slog.Warn("unmarshal event meta", "err", err)
 			continue
 		}
@@ -98,7 +89,7 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 		}
 		if m.Repo != "" {
 			repoCt[m.Repo]++
-			repoSet[m.Repo+"\x00"+m.Cwd] = struct{}{}
+			repoCwd[m.Repo] = m.Cwd
 			b.ByProject[m.Repo] += secPerTick
 		}
 		if m.Cwd != "" {
@@ -118,6 +109,9 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 		if m.Category == "runtime" {
 			runtimeByCmd[m.Command]++
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	b.FocusedMin = (activeTicks * secPerTick) / 60
@@ -145,17 +139,12 @@ func BuildBlock(ctx context.Context, d *DB, start, end time.Time, pollSec int, p
 	}
 
 	// gather language + git data per unique repo
-	cwdsByRepo := map[string][]string{}
-	for k := range repoSet {
-		parts := strings.SplitN(k, "\x00", 2)
-		cwdsByRepo[parts[0]] = append(cwdsByRepo[parts[0]], parts[1])
-	}
 	// Always use UTC when passing timestamps to git --since/--until.
 	// The format string has a literal 'Z' suffix, so the time MUST be UTC first.
 	since := start.UTC().Format("2006-01-02T15:04:05Z")
 	until := end.UTC().Format("2006-01-02T15:04:05Z")
-	for repo, cwds := range cwdsByRepo {
-		root := RepoRoot(cwds[0])
+	for repo, cwd := range repoCwd {
+		root := RepoRoot(cwd)
 		if root == "" {
 			continue
 		}

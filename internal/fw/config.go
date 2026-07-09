@@ -11,7 +11,7 @@ import (
 
 type Config struct {
 	PollIntervalSec  int      `yaml:"poll_interval_sec"`
-	FocusBlockMin    int      `yaml:"focus_block_min"`    // focused minutes that make one block
+	FocusBlockMin    int      `yaml:"focus_block_min"` // focused minutes that make one block
 	IdleThresholdSec int      `yaml:"idle_threshold_sec"`
 	RepoPath         string   `yaml:"repo_path"`
 	GitRemote        string   `yaml:"git_remote"` // blank = local-only (no push)
@@ -20,9 +20,9 @@ type Config struct {
 
 	MachineName string `yaml:"machine_name"` // subfolder name inside repo (default: hostname)
 
-	AIEnabled bool   `yaml:"ai_enabled"`
-	AICommand string `yaml:"ai_command"` // any CLI reading stdin → stdout. Run via `sh -c`.
-	AIPrompt  string `yaml:"ai_prompt"`  // prepended to the block summary on stdin.
+	AIEnabled      bool              `yaml:"ai_enabled"`
+	AICommand      string            `yaml:"ai_command"` // any CLI reading stdin → stdout. Run via `sh -c`.
+	AIPrompt       string            `yaml:"ai_prompt"`  // prepended to the block summary on stdin.
 	AISessionPaths map[string]string `yaml:"ai_session_paths"`
 }
 
@@ -101,6 +101,17 @@ func WriteConfig(path string, cfg *Config) error {
 		return err
 	}
 	return os.WriteFile(path, data, 0640)
+}
+
+// dataDir returns flowd's data directory:
+// $XDG_DATA_HOME/flowd (defaults to ~/.local/share/flowd).
+func dataDir() string {
+	dataHome := os.Getenv("XDG_DATA_HOME")
+	if dataHome == "" {
+		home, _ := os.UserHomeDir()
+		dataHome = filepath.Join(home, ".local", "share")
+	}
+	return filepath.Join(dataHome, "flowd")
 }
 
 func expandHome(p string) string {

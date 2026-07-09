@@ -196,14 +196,28 @@ func git(ctx context.Context, dir string, args ...string) error {
 // Prevents hangs on network filesystems or slow git hooks.
 const gitTimeout = 5 * time.Second
 
-func RepoRoot(cwd string) string {
+// gitQuery runs a read-only git command in dir with gitTimeout applied and
+// returns trimmed stdout, or "" on any error. It is the canonical runner for
+// the metadata queries below (RepoRoot, CurrentBranch, DiffStat, …).
+func gitQuery(dir string, args ...string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "-C", cwd, "rev-parse", "--show-toplevel").Output()
+	fullArgs := append([]string{"-C", dir}, args...)
+	out, err := exec.CommandContext(ctx, "git", fullArgs...).Output()
 	if err != nil {
 		return ""
 	}
 	return strings.TrimSpace(string(out))
+}
+
+func RepoRoot(cwd string) string {
+	return gitQuery(cwd, "rev-parse", "--show-toplevel")
+}
+
+// hasGitRemote returns true if a push remote is available.
+func hasGitRemote(cfg *Config) bool {
+	return cfg.GitRemote != "" ||
+		gitQuery(expandHome(cfg.RepoPath), "remote", "get-url", "origin") != ""
 }
 
 func RepoName(cwd string) string {
@@ -215,13 +229,7 @@ func RepoName(cwd string) string {
 }
 
 func CurrentBranch(repo string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD").Output()
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
+	return gitQuery(repo, "rev-parse", "--abbrev-ref", "HEAD")
 }
 
 type FileStat struct {
@@ -263,19 +271,16 @@ func RecentCommits(repo string, since time.Time, maxCount int) []Commit {
 	if maxCount <= 0 {
 		maxCount = 50
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
 	// Format: hash\x1fauthor\x1fdate\x1fsubject\n
-	format := "--pretty=format:%h\x1f%an\x1f%aI\x1f%s"
-	sinceArg := "--since=" + since.UTC().Format("2006-01-02T15:04:05Z")
-	maxArg := fmt.Sprintf("--max-count=%d", maxCount)
-	out, err := exec.CommandContext(ctx, "git", "-C", repo, "log",
-		sinceArg, maxArg, format).Output()
-	if err != nil || len(out) == 0 {
+	out := gitQuery(repo, "log",
+		"--since="+since.UTC().Format("2006-01-02T15:04:05Z"),
+		fmt.Sprintf("--max-count=%d", maxCount),
+		"--pretty=format:%h\x1f%an\x1f%aI\x1f%s")
+	if out == "" {
 		return nil
 	}
 	var commits []Commit
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for _, line := range strings.Split(out, "\n") {
 		parts := strings.SplitN(line, "\x1f", 4)
 		if len(parts) < 4 {
 			continue
@@ -294,13 +299,9 @@ func RecentCommits(repo string, since time.Time, maxCount int) []Commit {
 // Only committed work is counted — uncommitted diffs are intentionally excluded
 // to prevent double-counting across block boundaries.
 func DiffStat(repo, sinceISO, untilISO string) map[string]FileStat {
-	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
-	defer cancel()
 	files := map[string]FileStat{}
-	if out, err := exec.CommandContext(ctx, "git", "-C", repo, "log",
+	parseNumstat(gitQuery(repo, "log",
 		"--since="+sinceISO, "--until="+untilISO,
-		"--pretty=tformat:", "--numstat").Output(); err == nil {
-		parseNumstat(string(out), files)
-	}
+		"--pretty=tformat:", "--numstat"), files)
 	return files
 }

@@ -194,8 +194,8 @@ func TestBuildBlockAIPaneNoPhantomLang(t *testing.T) {
 		Session:  "main",
 		Window:   "ai",
 		Pane:     "0",
-		Command:  "pi",   // relabelled by proctree resolver
-		Category: "ai",  // ← key: NOT "runtime"
+		Command:  "pi", // relabelled by proctree resolver
+		Category: "ai", // ← key: NOT "runtime"
 		Cwd:      "/tmp/proj",
 		Repo:     "proj",
 	})

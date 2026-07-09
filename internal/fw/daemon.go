@@ -18,11 +18,33 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const pidFile = "/tmp/fw.pid"
+// legacyPIDFile is where daemons before v1.x wrote their PID. /tmp is
+// world-writable (any user could squat the path), so the pid file now lives
+// in the user-owned data dir; the old path is still read so `fw stop` works
+// across an upgrade.
+const legacyPIDFile = "/tmp/fw.pid"
 
-func defaultLogPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", "flowd", "flowd.log")
+func pidFilePath() string { return filepath.Join(dataDir(), "fw.pid") }
+
+func defaultLogPath() string { return filepath.Join(dataDir(), "flowd.log") }
+
+// daemonPID returns the PID of a live daemon, or 0 when none is running
+// (no pid file, unparseable file, or the recorded process is gone).
+func daemonPID() int {
+	for _, path := range []string{pidFilePath(), legacyPIDFile} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err != nil || pid <= 0 {
+			continue
+		}
+		if proc, err := os.FindProcess(pid); err == nil && proc.Signal(syscall.Signal(0)) == nil {
+			return pid
+		}
+	}
+	return 0
 }
 
 func cmdStart() *cobra.Command {
@@ -44,12 +66,8 @@ func cmdStart() *cobra.Command {
 
 // spawnDaemon re-execs fw with --daemon, detached from the terminal.
 func spawnDaemon() error {
-	if data, err := os.ReadFile(pidFile); err == nil {
-		if p, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
-			if proc, err := os.FindProcess(p); err == nil && proc.Signal(syscall.Signal(0)) == nil {
-				return fmt.Errorf("flowd already running (pid %d); run `fw stop` first", p)
-			}
-		}
+	if pid := daemonPID(); pid != 0 {
+		return fmt.Errorf("flowd already running (pid %d); run `fw stop` first", pid)
 	}
 
 	logPath := defaultLogPath()
@@ -95,7 +113,11 @@ func runDaemon() error {
 	}
 	defer d.Close()
 
-	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0644); err != nil {
+	pidFile := pidFilePath()
+	if err := os.MkdirAll(filepath.Dir(pidFile), 0750); err != nil {
+		slog.Warn("create data dir", "err", err)
+	}
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(os.Getpid())), 0600); err != nil {
 		slog.Warn("write pid", "err", err)
 	}
 	defer os.Remove(pidFile)
@@ -126,7 +148,7 @@ func runDaemon() error {
 		ticker := time.NewTicker(30 * time.Minute)
 		defer ticker.Stop()
 		svc := ai_sessions.NewService(d.DB, cfg.AISessionPaths)
-		if err := svc.RunSync(); err != nil {
+		if err := svc.RunSync(ctx); err != nil {
 			slog.Warn("initial ai session scan", "err", err)
 		}
 		for {
@@ -134,7 +156,7 @@ func runDaemon() error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err := svc.RunSync(); err != nil {
+				if err := svc.RunSync(ctx); err != nil {
 					slog.Warn("ai session scan", "err", err)
 				}
 			}
@@ -151,14 +173,10 @@ func cmdStop() *cobra.Command {
 		Use:   "stop",
 		Short: "Stop the running daemon",
 		RunE: func(*cobra.Command, []string) error {
-			data, err := os.ReadFile(pidFile)
-			if err != nil {
-				fmt.Println("flowd not running (no pid file)")
+			pid := daemonPID()
+			if pid == 0 {
+				fmt.Println("flowd not running")
 				return nil
-			}
-			pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-			if err != nil {
-				return fmt.Errorf("bad pid file: %w", err)
 			}
 			proc, err := os.FindProcess(pid)
 			if err != nil {
@@ -178,20 +196,8 @@ func cmdStatus() *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show daemon status and DB counts",
-		RunE: func(*cobra.Command, []string) error {
-			running := false
-			pid := 0
-			if data, err := os.ReadFile(pidFile); err == nil {
-				if p, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
-					if proc, err := os.FindProcess(p); err == nil {
-						if proc.Signal(syscall.Signal(0)) == nil {
-							running = true
-							pid = p
-						}
-					}
-				}
-			}
-			if running {
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if pid := daemonPID(); pid != 0 {
 				fmt.Printf("daemon: running (pid %d)\n", pid)
 			} else {
 				fmt.Println("daemon: stopped")
@@ -207,8 +213,12 @@ func cmdStatus() *cobra.Command {
 			}
 			defer d.Close()
 			var ev, bl int
-			d.QueryRow("SELECT COUNT(*) FROM events").Scan(&ev)
-			d.QueryRow("SELECT COUNT(*) FROM blocks").Scan(&bl)
+			if err := d.QueryRowContext(cmd.Context(), "SELECT COUNT(*) FROM events").Scan(&ev); err != nil {
+				return fmt.Errorf("count events: %w", err)
+			}
+			if err := d.QueryRowContext(cmd.Context(), "SELECT COUNT(*) FROM blocks").Scan(&bl); err != nil {
+				return fmt.Errorf("count blocks: %w", err)
+			}
 			fmt.Printf("db:     %s\nevents: %d\nblocks: %d\n", cfg.DBPath(), ev, bl)
 			return nil
 		},
@@ -237,6 +247,11 @@ func runScheduler(ctx context.Context, d *DB, cfg *Config) {
 				slog.Info("resumed block start", "from", blockStart.Format(time.RFC3339))
 			}
 		}
+	}
+	// Persist immediately so a restart before the first block completes
+	// resumes from here instead of forgetting in-progress focus time.
+	if err := d.SetState(stateBlockStart, blockStart.UTC().Format(time.RFC3339)); err != nil {
+		slog.Warn("persist block start", "err", err)
 	}
 
 	focusThreshold := cfg.FocusBlockMin

@@ -27,12 +27,7 @@ type nvimState struct {
 // nvimStateDir returns the directory where the plugin writes state files:
 // $XDG_DATA_HOME/flowd/nvim  (defaults to ~/.local/share/flowd/nvim).
 func nvimStateDir() string {
-	dataHome := os.Getenv("XDG_DATA_HOME")
-	if dataHome == "" {
-		home, _ := os.UserHomeDir()
-		dataHome = filepath.Join(home, ".local", "share")
-	}
-	return filepath.Join(dataHome, "flowd", "nvim")
+	return filepath.Join(dataDir(), "nvim")
 }
 
 // nvimConfigDir returns the neovim user config directory:
