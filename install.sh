@@ -62,8 +62,25 @@ trap 'rm -f "$TMP_BIN"' EXIT
 
 info "downloading $ASSET_NAME..."
 FETCH "$DOWNLOAD_URL" > "$TMP_BIN"
-chmod +x "$TMP_BIN"
 ok "downloaded"
+
+# ── checksum verification ───────────────────────────────────────────────
+sha256_of() {
+  if command -v sha256sum &>/dev/null; then sha256sum "$1" | awk '{print $1}';
+  else shasum -a 256 "$1" | awk '{print $1}'; fi
+}
+if command -v sha256sum &>/dev/null || command -v shasum &>/dev/null; then
+  if CHECKSUM=$(FETCH "${DOWNLOAD_URL}.sha256" 2>/dev/null); then
+    EXPECTED=$(echo "$CHECKSUM" | awk '{print $1}')
+    ACTUAL=$(sha256_of "$TMP_BIN")
+    [[ "$EXPECTED" == "$ACTUAL" ]] || die "checksum mismatch (got $ACTUAL, want $EXPECTED)"
+    ok "checksum verified"
+  else
+    info "no checksum published for $TAG — skipping verification"
+  fi
+fi
+
+chmod +x "$TMP_BIN"
 
 # ── install ───────────────────────────────────────────────────────────────────
 DEST="${INSTALL_DIR}/${BINARY}"
