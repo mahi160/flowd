@@ -17,7 +17,7 @@ const (
 // pidCacheEntry holds a resolved AI-CLI result for a specific pane PID
 // so we don't call ResolveAICLI on every 3-second poll tick.
 type pidCacheEntry struct {
-	tool      string    // "" means "checked, not an AI CLI"
+	tool      string // "" means "checked, not an AI CLI"
 	expiresAt time.Time
 }
 
@@ -37,6 +37,11 @@ const nvimCacheTTL = 5 * time.Second
 // classifyCommand maps a process name to a tool category used for
 // language inference. The raw command name is stored in ByTool;
 // the category is an internal grouping only.
+//
+// Note: the "runtime" list here overlaps with (but is distinct from) the
+// interpreters map in proctree.go — that one answers "could an AI CLI be
+// hiding beneath this process?", this one answers "what category is it?".
+// Keep both in mind when adding a new runtime.
 func classifyCommand(cmd string) string {
 	switch cmd {
 	case "nvim", "vim", "vi", "nano", "emacs", "hx", "micro", "code", "subl", "gedit", "kate":
@@ -58,15 +63,15 @@ func classifyCommand(cmd string) string {
 }
 
 type PaneMeta struct {
-	Session      string `json:"session"`
-	Window       string `json:"window"`
-	Pane         string `json:"pane"`
-	Command      string `json:"command"`
-	Category     string `json:"category"`
-	Cwd          string `json:"cwd"`
-	Repo         string `json:"repo,omitempty"`
-	Machine      string `json:"machine,omitempty"`
-	OS           string `json:"os,omitempty"`
+	Session  string `json:"session"`
+	Window   string `json:"window"`
+	Pane     string `json:"pane"`
+	Command  string `json:"command"`
+	Category string `json:"category"`
+	Cwd      string `json:"cwd"`
+	Repo     string `json:"repo,omitempty"`
+	Machine  string `json:"machine,omitempty"`
+	OS       string `json:"os,omitempty"`
 	// NvimFiletype is populated by the flowd.lua plugin when the pane is nvim.
 	// Empty string means plugin absent or not an nvim pane.
 	NvimFiletype string `json:"nvim_ft,omitempty"`
@@ -82,7 +87,7 @@ type Tracker struct {
 	repoCache map[string]string // cwd → repo name
 	// pidCache caches AI-CLI resolution per pane PID to avoid calling
 	// ResolveAICLI on every 3-second tick (only used for interpreter panes).
-	pidCache  map[int]pidCacheEntry
+	pidCache map[int]pidCacheEntry
 	// nvimCache caches the nvim plugin filetype per pane CWD to avoid
 	// scanning the state directory on every poll tick.
 	nvimCache map[string]nvimCacheEntry
@@ -114,12 +119,9 @@ func (t *Tracker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-tk.C:
-			if !TmuxRunning() {
-				slog.Debug("tmux gone")
-				t.last = nil
-				t.waitForTmux(ctx)
-				continue
-			}
+			// No separate TmuxRunning() check per tick: AttachedSession()
+			// inside poll() already returns "" when the server is gone,
+			// saving one tmux subprocess every interval.
 			t.poll()
 		}
 	}
@@ -154,18 +156,18 @@ func (t *Tracker) poll() {
 		}
 	}
 
-	if ScreenClosed() {
+	session, idle := AttachedSession()
+	if session == "" {
 		if t.last != nil {
-			slog.Debug("screen closed, pausing tracking")
+			slog.Debug("tmux detached or gone")
 			t.last = nil
 		}
 		return
 	}
-
-	session, idle := AttachedSession()
-	if session == "" {
+	// Checked after the session so ioreg (macOS) only runs while attached.
+	if ScreenClosed() {
 		if t.last != nil {
-			slog.Debug("tmux detached")
+			slog.Debug("screen closed, pausing tracking")
 			t.last = nil
 		}
 		return

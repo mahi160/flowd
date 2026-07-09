@@ -20,19 +20,19 @@ import (
 
 // calDay holds activity for a single calendar day (month/year heatmap).
 type calDay struct {
-	Date   string `json:"date"`   // "2026-05-17"
-	Dow    int    `json:"dow"`    // 0=Sunday … 6=Saturday (Go time.Weekday)
+	Date   string `json:"date"` // "2026-05-17"
+	Dow    int    `json:"dow"`  // 0=Sunday … 6=Saturday (Go time.Weekday)
 	Min    int    `json:"min"`
 	Blocks int    `json:"blocks"`
 }
 
 // monthBar holds aggregated activity for one calendar month (all-time chart).
 type monthBar struct {
-	YM    string `json:"ym"`    // "2026-05"
-	Year  int    `json:"year"`
-	Month int    `json:"month"` // 1-12
-	Min   int    `json:"min"`
-	Blocks int   `json:"blocks"`
+	YM     string `json:"ym"` // "2026-05"
+	Year   int    `json:"year"`
+	Month  int    `json:"month"` // 1-12
+	Min    int    `json:"min"`
+	Blocks int    `json:"blocks"`
 }
 
 type hourBucket struct {
@@ -91,14 +91,14 @@ type periodData struct {
 // dashPayload is the top-level JSON blob injected into the HTML.
 // It contains pre-built data for ALL periods so every tab works immediately.
 type dashPayload struct {
-	InitialPeriod string                 `json:"initial_period"`
-	Generated     string                 `json:"generated"`
-	Machine       string                 `json:"machine"`
-	OS            string                 `json:"os"`
-	StreakDays    int                    `json:"streak_days"`
+	InitialPeriod string `json:"initial_period"`
+	Generated     string `json:"generated"`
+	Machine       string `json:"machine"`
+	OS            string `json:"os"`
+	StreakDays    int    `json:"streak_days"`
 	// Standup is the AI-generated today/yesterday standup text.
 	// Empty when AI is disabled or no blocks exist for today/yesterday.
-	Standup    string                 `json:"standup,omitempty"`
+	Standup string `json:"standup,omitempty"`
 	// StandupRaw is the structured input (always present when there is
 	// recent activity) — rendered verbatim when AI is disabled.
 	StandupRaw string                 `json:"standup_raw,omitempty"`
@@ -339,6 +339,7 @@ func aggregateAISessions(rows []aiRawRow) []ai_sessions.ToolSummary {
 
 	tools := map[string]*ai_sessions.ToolSummary{}
 	sessions := map[sessKey]*sessAccum{}
+	sessionOrder := map[string][]sessKey{} // tool → its session keys
 	var toolOrder []string
 
 	for _, r := range rows {
@@ -362,6 +363,7 @@ func aggregateAISessions(rows []aiRawRow) []ai_sessions.ToolSummary {
 		if !ok {
 			sa = &sessAccum{project: r.Project, model: map[string]int{}, start: r.Timestamp, end: r.Timestamp}
 			sessions[sk] = sa
+			sessionOrder[r.Tool] = append(sessionOrder[r.Tool], sk)
 		}
 		sa.input += r.TokensRead
 		sa.output += r.TokensWrite
@@ -383,10 +385,8 @@ func aggregateAISessions(rows []aiRawRow) []ai_sessions.ToolSummary {
 	for _, toolName := range toolOrder {
 		ts := tools[toolName]
 		ts.TopModel = topKey(ts.ModelBreakdown)
-		for sk, sa := range sessions {
-			if sk.tool != toolName {
-				continue
-			}
+		for _, sk := range sessionOrder[toolName] {
+			sa := sessions[sk]
 			ts.SessionCount++
 			ts.Sessions = append(ts.Sessions, ai_sessions.AggregatedSession{
 				Tool:         toolName,
@@ -412,16 +412,6 @@ func aggregateAISessions(rows []aiRawRow) []ai_sessions.ToolSummary {
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────────────
-
-// hasGitRemote returns true if a push remote is available.
-func hasGitRemote(cfg *Config) bool {
-	if cfg.GitRemote != "" {
-		return true
-	}
-	repo := expandHome(cfg.RepoPath)
-	out, err := exec.Command("git", "-C", repo, "remote", "get-url", "origin").Output()
-	return err == nil && strings.TrimSpace(string(out)) != ""
-}
 
 // RenderDashboard writes the single-file HTML dashboard.
 func RenderDashboard(payload dashPayload, outPath string) error {

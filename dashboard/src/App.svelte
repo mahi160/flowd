@@ -18,10 +18,12 @@
 
   let { raw }: { raw: RawPayload } = $props();
 
-  let view  = $state(raw.initial_period || "today");
-  let theme = $state(loadTheme());
+  let period = $state(raw.initial_period || "today");
+  let theme  = $state(loadTheme());
 
-  let data = $derived(transform(raw, view));
+  let data = $derived(transform(raw, period));
+  // Human label for the selected period (currently the period id itself).
+  let periodLabel = $derived(period);
 
   $effect(() => {
     const resolved = resolveTheme(theme);
@@ -44,16 +46,16 @@
     year:      "cal",
     all:       "all",
   };
-  let heatmapType = $derived(HEATMAP_TYPE[view] ?? "today");
-  let showStandup = $derived(view === "today" && !!(data.standup));
+  let heatmapType = $derived(HEATMAP_TYPE[period] ?? "today");
+  let showStandup = $derived(period === "today" && !!(data.standup));
 </script>
 
 <div class="min-h-screen max-w-[1480px] mx-auto px-6 py-8 md:px-10">
   <Header
     {data}
-    {view}
+    view={period}
     {theme}
-    onSetView={(v) => (view = v)}
+    onSetView={(v) => (period = v)}
     onCycleTheme={() => (theme = cycleTheme(theme))}
   />
 
@@ -75,7 +77,7 @@
       <div class="rounded-xl border border-stone-200 dark:border-stone-800
                   bg-stone-50 dark:bg-stone-900 shadow-sm flex flex-col
                   items-center justify-center min-h-[280px] text-center gap-2.5 p-8">
-        <h2 class="font-display text-xl text-stone-500">No {view} activity</h2>
+        <h2 class="font-display text-xl text-stone-500">No {period} activity</h2>
         <p class="text-stone-400 text-xs">Nothing tracked for this period yet.</p>
       </div>
     </main>

@@ -142,11 +142,11 @@ type aiPreset struct {
 }
 
 var aiPresets = []aiPreset{
-	{name: "pi",       binary: "pi",     command: "pi -p --model haiku"},
-	{name: "claude",   binary: "claude", command: "claude --print"},
-	{name: "gemini",   binary: "gemini", command: "gemini -p --model gemini-2.0-flash-lite"},
-	{name: "llm",      binary: "llm",    command: "llm -m gpt-4o-mini"},
-	{name: "aider",    binary: "aider",  command: "aider --no-pretty"},
+	{name: "pi", binary: "pi", command: "pi -p --model haiku"},
+	{name: "claude", binary: "claude", command: "claude --print"},
+	{name: "gemini", binary: "gemini", command: "gemini -p --model gemini-2.0-flash-lite"},
+	{name: "llm", binary: "llm", command: "llm -m gpt-4o-mini"},
+	{name: "aider", binary: "aider", command: "aider --no-pretty"},
 }
 
 // pickAICommand auto-detects installed AI CLIs, shows a numbered list, and

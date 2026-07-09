@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -15,18 +16,21 @@ import (
 
 // Standup is the generated standup text plus metadata.
 type Standup struct {
-	Text      string    // AI-generated text; "" if AI is disabled
-	Raw       string    // structured input that was sent to AI (always populated)
+	Text        string // AI-generated text; "" if AI is disabled
+	Raw         string // structured input that was sent to AI (always populated)
 	GeneratedAt time.Time
 }
 
 // ── Cache ─────────────────────────────────────────────────────────────────────
 
-// standupCache caches the generated standup keyed by a day-hash so multiple
-// `fw dashboard` invocations on the same day don't call the AI twice.
+// standupCache holds the single most recent standup, keyed by an input hash,
+// so repeated builds within the same daemon session don't call the AI twice.
+// Only one entry is kept: keys rotate every 30 minutes, so a map would grow
+// unboundedly in a long-running daemon.
 var (
-	standupMu    sync.Mutex
-	standupCache = map[string]*Standup{}
+	standupMu       sync.Mutex
+	standupCacheKey string
+	standupCached   *Standup
 )
 
 func cacheKey(blocks []Block) string {
@@ -62,7 +66,8 @@ func BuildStandup(ctx context.Context, cfg *Config, todayBlocks, yestBlocks []Bl
 
 	key := cacheKey(allBlocks)
 	standupMu.Lock()
-	if cached, ok := standupCache[key]; ok {
+	if key == standupCacheKey && standupCached != nil {
+		cached := standupCached
 		standupMu.Unlock()
 		return cached, nil
 	}
@@ -91,7 +96,7 @@ func BuildStandup(ctx context.Context, cfg *Config, todayBlocks, yestBlocks []Bl
 	}
 
 	standupMu.Lock()
-	standupCache[key] = result
+	standupCacheKey, standupCached = key, result
 	standupMu.Unlock()
 
 	return result, nil
@@ -204,7 +209,10 @@ func commitsForBlocks(blocks []Block, repoName string, since time.Time) []Commit
 			continue
 		}
 		root := RepoRoot(b.Project) // b.Project is a cwd path
-		if root == "" {
+		// b.Project is the block's top cwd overall, which may belong to a
+		// different repo when a block spans several repos — verify the match
+		// so commits aren't attributed to the wrong project.
+		if root == "" || filepath.Base(root) != repoName {
 			continue
 		}
 		return RecentCommits(root, since, 20)

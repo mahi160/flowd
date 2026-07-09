@@ -2,6 +2,8 @@ package fw
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -62,9 +64,19 @@ func cmdUpdate() *cobra.Command {
 			downloadURL := fmt.Sprintf("%s/releases/download/%s/%s", repoURL, latest, assetName)
 			fmt.Printf("downloading %s...\n", downloadURL)
 
-			tmpFile, err := os.CreateTemp("", "fw-update-*")
+			// Download into the same directory as the target binary so the
+			// final os.Rename is atomic (same filesystem) and never leaves a
+			// half-written executable. Overwriting a running binary in place
+			// can crash the process (notably on macOS with code signing);
+			// rename swaps the inode instead.
+			tmpFile, err := os.CreateTemp(filepath.Dir(exe), ".fw-update-*")
 			if err != nil {
-				return err
+				// Target dir not writable — fall back to /tmp; the sudo path
+				// below will move it into place.
+				tmpFile, err = os.CreateTemp("", "fw-update-*")
+				if err != nil {
+					return err
+				}
 			}
 			tmpPath := tmpFile.Name()
 			defer os.Remove(tmpPath)
@@ -75,19 +87,23 @@ func cmdUpdate() *cobra.Command {
 			}
 			tmpFile.Close()
 
+			if err := verifyChecksum(ctx, tmpPath, downloadURL+".sha256"); err != nil {
+				return fmt.Errorf("checksum: %w", err)
+			}
+
 			if err := os.Chmod(tmpPath, 0755); err != nil {
 				return fmt.Errorf("chmod: %w", err)
 			}
 
-			// Replace the running binary.
-			if err := replaceBinary(tmpPath, exe); err != nil {
-				fmt.Printf("\n%s is not writable — running sudo cp\n", exe)
-				sudo := exec.CommandContext(ctx, "sudo", "cp", tmpPath, exe)
+			// Replace the running binary atomically.
+			if err := os.Rename(tmpPath, exe); err != nil {
+				fmt.Printf("\n%s is not writable — running sudo mv\n", exe)
+				sudo := exec.CommandContext(ctx, "sudo", "mv", tmpPath, exe)
 				sudo.Stdin = os.Stdin
 				sudo.Stdout = os.Stdout
 				sudo.Stderr = os.Stderr
 				if sudoErr := sudo.Run(); sudoErr != nil {
-					fmt.Printf("sudo failed: %v\nrun manually:\n  sudo cp %s %s\n", sudoErr, tmpPath, exe)
+					fmt.Printf("sudo failed: %v\nrun manually:\n  sudo mv %s %s\n", sudoErr, tmpPath, exe)
 					return nil
 				}
 			}
@@ -96,6 +112,53 @@ func cmdUpdate() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// verifyChecksum fetches the .sha256 sidecar for a release asset and checks
+// the downloaded file against it. Releases published before checksums were
+// introduced have no sidecar; that case is reported and skipped rather than
+// failing the update.
+func verifyChecksum(ctx context.Context, path, sumURL string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, sumURL, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		fmt.Println("no checksum published for this release — skipping verification")
+		return nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("fetch checksum: server returned %s", resp.Status)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024))
+	if err != nil {
+		return err
+	}
+	want := strings.Fields(string(body)) // "hash  filename"
+	if len(want) == 0 || len(want[0]) != 64 {
+		return fmt.Errorf("malformed checksum file")
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	got := hex.EncodeToString(h.Sum(nil))
+	if got != want[0] {
+		return fmt.Errorf("mismatch: got %s, want %s", got, want[0])
+	}
+	fmt.Println("checksum verified ✓")
+	return nil
 }
 
 // downloadFile fetches url and streams the body into dst.
@@ -146,28 +209,4 @@ func latestRemoteTag(ctx context.Context) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no semver tags found at %s", repoURL)
-}
-
-// copyFile copies src to dst with the given permissions.
-func copyFile(src, dst string, perm os.FileMode) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
-		os.Remove(dst)
-		return err
-	}
-	return out.Close()
-}
-
-// replaceBinary overwrites dst with src, the same way `cp src dst` does.
-func replaceBinary(src, dst string) error {
-	return copyFile(src, dst, 0755)
 }
