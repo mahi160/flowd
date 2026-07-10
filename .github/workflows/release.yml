@@ -71,6 +71,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Check out the branch TIP, not github.sha: the prepare job may have
+          # pushed a dashboard-artifact commit to prod, and semantic-release
+          # refuses to publish from a checkout that is behind the remote
+          # ("local branch prod is behind the remote one").
+          ref: prod
 
       - name: Setup Node
         uses: actions/setup-node@v4
